@@ -12,6 +12,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -23,6 +24,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredHeightIn
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
@@ -32,10 +34,13 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ChatBubble
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.GridOn
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Lock
@@ -52,6 +57,7 @@ import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -104,6 +110,8 @@ fun TikTokHomeScreen(modifier: Modifier = Modifier) {
     var selectedVideoUri by remember { mutableStateOf<Uri?>(null) }
     var caption by rememberSaveable { mutableStateOf("") }
     var pausedVideoId by rememberSaveable { mutableStateOf<String?>(null) }
+    var editingPostId by rememberSaveable { mutableStateOf<String?>(null) }
+    var editingCaptionText by rememberSaveable { mutableStateOf("") }
     val videoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         selectedVideoUri = uri
         if (uri != null) caption = ""
@@ -131,6 +139,10 @@ fun TikTokHomeScreen(modifier: Modifier = Modifier) {
                     pausedVideoId = if (pausedVideoId == postId) null else postId
                 },
                 onCommentsClick = { showComments = true },
+                onEditCaptionClick = { post ->
+                    editingPostId = post.id
+                    editingCaptionText = post.caption
+                },
                 selectedTab = selectedTab,
                 onTabSelected = { tapped ->
                     selectedTab = if (tapped == BottomTab.Profile && selectedTab == BottomTab.Profile) {
@@ -186,7 +198,8 @@ fun TikTokHomeScreen(modifier: Modifier = Modifier) {
                             shares = "Share",
                             avatarBrush = Brush.linearGradient(
                                 listOf(Color(0xFF32E0C4), Color(0xFF0E6BA8))
-                            )
+                            ),
+                            isEditable = true
                         )
                     )
                     selectedVideoUri = null
@@ -194,6 +207,25 @@ fun TikTokHomeScreen(modifier: Modifier = Modifier) {
                     selectedTab = BottomTab.Home
                     pausedVideoId = null
                     showComments = false
+                }
+            )
+        }
+
+        if (editingPostId != null) {
+            CaptionEditSheet(
+                caption = editingCaptionText,
+                onCaptionChange = { editingCaptionText = it },
+                onDismiss = {
+                    editingPostId = null
+                    editingCaptionText = ""
+                },
+                onSave = {
+                    val index = uploadedPosts.indexOfFirst { it.id == editingPostId }
+                    if (index >= 0) {
+                        uploadedPosts[index] = uploadedPosts[index].copy(caption = editingCaptionText)
+                    }
+                    editingPostId = null
+                    editingCaptionText = ""
                 }
             )
         }
@@ -207,6 +239,7 @@ private fun HomeFeedPager(
     pausedVideoId: String?,
     onTogglePlayback: (String) -> Unit,
     onCommentsClick: () -> Unit,
+    onEditCaptionClick: (VideoPostUiModel) -> Unit,
     selectedTab: BottomTab,
     onTabSelected: (BottomTab) -> Unit,
     onCreateClick: () -> Unit
@@ -219,7 +252,8 @@ private fun HomeFeedPager(
                 isActive = pagerState.currentPage == page,
                 isPaused = pausedVideoId == post.id,
                 onTogglePlayback = { onTogglePlayback(post.id) },
-                onCommentsClick = onCommentsClick
+                onCommentsClick = onCommentsClick,
+                onEditCaptionClick = onEditCaptionClick
             )
         }
 
@@ -239,7 +273,8 @@ private fun HomeFeedPage(
     isActive: Boolean,
     isPaused: Boolean,
     onTogglePlayback: () -> Unit,
-    onCommentsClick: () -> Unit
+    onCommentsClick: () -> Unit,
+    onEditCaptionClick: (VideoPostUiModel) -> Unit
 ) {
     Box(modifier = Modifier.fillMaxSize()) {
         if (post.uri != null) {
@@ -264,7 +299,12 @@ private fun HomeFeedPage(
             HomeFeedBackground()
         }
 
-        FeedOverlay(post = post, showTabs = post.uri == null, onCommentsClick = onCommentsClick)
+        FeedOverlay(
+            post = post,
+            showTabs = post.uri == null,
+            onCommentsClick = onCommentsClick,
+            onEditCaptionClick = onEditCaptionClick
+        )
     }
 }
 
@@ -295,7 +335,8 @@ private fun VideoBackground(uri: Uri, shouldPlay: Boolean, onTogglePlayback: () 
 private fun FeedOverlay(
     post: VideoPostUiModel,
     showTabs: Boolean,
-    onCommentsClick: () -> Unit
+    onCommentsClick: () -> Unit,
+    onEditCaptionClick: (VideoPostUiModel) -> Unit
 ) {
     Box(modifier = Modifier.fillMaxSize()) {
         if (showTabs) {
@@ -304,7 +345,8 @@ private fun FeedOverlay(
 
         BottomMetaBlock(
             modifier = Modifier.align(Alignment.BottomStart).navigationBarsPadding(),
-            post = post
+            post = post,
+            onEditCaptionClick = { onEditCaptionClick(post) }
         )
 
         RightActionRail(
@@ -404,35 +446,97 @@ private fun TopTabs(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun BottomMetaBlock(modifier: Modifier = Modifier, post: VideoPostUiModel) {
-    Column(modifier = modifier.fillMaxWidth(0.76f).padding(start = 16.dp, bottom = 76.dp)) {
-        Text(
-            text = post.username,
-            color = Color.White,
-            style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold, fontSize = 16.sp)
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(
-            text = post.caption,
-            color = Color.White,
-            style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 20.sp)
-        )
-        Spacer(modifier = Modifier.height(10.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                imageVector = Icons.Rounded.MusicNote,
-                contentDescription = null,
-                tint = Color.White,
-                modifier = Modifier.size(16.dp)
-            )
-            Spacer(modifier = Modifier.width(6.dp))
+private fun BottomMetaBlock(
+    modifier: Modifier = Modifier,
+    post: VideoPostUiModel,
+    onEditCaptionClick: () -> Unit
+) {
+    val scrollState = rememberScrollState()
+
+    Column(modifier = modifier.fillMaxWidth(0.78f).padding(start = 16.dp, bottom = 76.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Text(
-                text = post.song,
-                color = Color.White.copy(alpha = 0.92f),
-                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Medium),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                text = post.username,
+                color = Color.White,
+                style = MaterialTheme.typography.bodyLarge.copy(
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 17.sp
+                )
             )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "New post",
+                color = Color.White.copy(alpha = 0.72f),
+                style = MaterialTheme.typography.labelMedium
+            )
+            Spacer(modifier = Modifier.weight(1f))
+            if (post.isEditable) {
+                Surface(
+                    color = Color.White.copy(alpha = 0.14f),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.clickable(onClick = onEditCaptionClick).padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Edit,
+                            contentDescription = "Edit caption",
+                            tint = Color.White,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Text(
+                            text = "Edit",
+                            color = Color.White,
+                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold)
+                        )
+                    }
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(10.dp))
+        Surface(
+            color = Color.Black.copy(alpha = 0.30f),
+            shape = RoundedCornerShape(18.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .requiredHeightIn(max = 220.dp)
+                    .verticalScroll(scrollState)
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    text = post.caption,
+                    color = Color.White,
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        fontSize = 15.sp,
+                        lineHeight = 24.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Rounded.MusicNote,
+                        contentDescription = null,
+                        tint = Color.White.copy(alpha = 0.88f),
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = post.song,
+                        color = Color.White.copy(alpha = 0.92f),
+                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Medium),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
         }
     }
 }
@@ -985,6 +1089,107 @@ private fun UploadCaptionSheet(
 }
 
 @Composable
+private fun CaptionEditSheet(
+    caption: String,
+    onCaptionChange: (String) -> Unit,
+    onDismiss: () -> Unit,
+    onSave: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.58f))
+            .clickable(onClick = onDismiss),
+        contentAlignment = Alignment.BottomCenter
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(enabled = false) {}
+                .navigationBarsPadding(),
+            color = Color(0xFFF8F8F8),
+            shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+            tonalElevation = 0.dp,
+            shadowElevation = 14.dp
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 18.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Edit caption",
+                        color = Color.Black,
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                    )
+                    IconButton(onClick = onDismiss) {
+                        Icon(
+                            imageVector = Icons.Outlined.MoreHoriz,
+                            contentDescription = "Close editor",
+                            tint = Color.Black.copy(alpha = 0.65f)
+                        )
+                    }
+                }
+                Text(
+                    text = "Make it readable on the feed. Line breaks and long captions are supported.",
+                    color = TikTokTextSecondary,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                OutlinedTextField(
+                    value = caption,
+                    onValueChange = onCaptionChange,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .requiredHeightIn(min = 180.dp, max = 260.dp),
+                    minLines = 7,
+                    maxLines = 12,
+                    label = { Text("Caption") },
+                    placeholder = { Text("Write a detailed caption") },
+                    shape = RoundedCornerShape(18.dp)
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Surface(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable(onClick = onDismiss),
+                        color = Color.White,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, TikTokOutline),
+                        shape = RoundedCornerShape(14.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier.padding(vertical = 14.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "Cancel",
+                                color = Color.Black,
+                                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
+                            )
+                        }
+                    }
+                    Button(
+                        onClick = onSave,
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(14.dp)
+                    ) {
+                        Text("Save")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun rememberVideoThumbnail(uri: Uri?): androidx.compose.ui.graphics.ImageBitmap? {
     val context = LocalContext.current
     val thumbnail by produceState<Bitmap?>(initialValue = null, uri) {
@@ -1053,7 +1258,8 @@ private data class VideoPostUiModel(
     val likes: String,
     val comments: String,
     val shares: String,
-    val avatarBrush: Brush
+    val avatarBrush: Brush,
+    val isEditable: Boolean = false
 )
 
 @Preview(showBackground = true, backgroundColor = 0xFF000000)
