@@ -1,14 +1,16 @@
 package com.example.tiktokui.ui.screens
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -39,8 +41,10 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -71,6 +75,14 @@ import com.example.tiktokui.ui.theme.TikTokUITheme
 fun TikTokHomeScreen(modifier: Modifier = Modifier) {
     var selectedTab by remember { mutableStateOf(BottomTab.Home) }
     var showComments by remember { mutableStateOf(false) }
+    var selectedVideoUri by remember { mutableStateOf<Uri?>(null) }
+    var caption by remember { mutableStateOf("") }
+    val videoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        selectedVideoUri = uri
+        if (uri != null) {
+            caption = ""
+        }
+    }
 
     Box(modifier = modifier.fillMaxSize()) {
         when (selectedTab) {
@@ -79,14 +91,29 @@ fun TikTokHomeScreen(modifier: Modifier = Modifier) {
                 HomeFeedOverlay(
                     onCommentsClick = { showComments = true },
                     selectedTab = selectedTab,
-                    onTabSelected = { selectedTab = it }
+                    onTabSelected = { tapped ->
+                        selectedTab = if (tapped == BottomTab.Profile && selectedTab == BottomTab.Profile) {
+                            BottomTab.Home
+                        } else {
+                            tapped
+                        }
+                    },
+                    onCreateClick = {
+                        showComments = false
+                        videoPicker.launch("video/*")
+                    }
                 )
             }
 
             BottomTab.Profile -> {
                 TikTokProfileScreen(
                     selectedTab = selectedTab,
-                    onTabSelected = { selectedTab = it }
+                    onTabSelected = { tapped ->
+                        selectedTab = if (tapped == BottomTab.Profile) BottomTab.Home else tapped
+                    },
+                    onCreateClick = {
+                        videoPicker.launch("video/*")
+                    }
                 )
             }
         }
@@ -95,6 +122,21 @@ fun TikTokHomeScreen(modifier: Modifier = Modifier) {
             TikTokCommentsScreen(
                 onDismissRequest = { showComments = false },
                 showStandaloneBackdrop = false
+            )
+        }
+
+        if (selectedVideoUri != null) {
+            UploadCaptionSheet(
+                selectedVideoUri = selectedVideoUri,
+                caption = caption,
+                onCaptionChange = { caption = it },
+                onDismiss = {
+                    selectedVideoUri = null
+                    caption = ""
+                },
+                onPost = {
+                    selectedVideoUri = null
+                }
             )
         }
     }
@@ -177,7 +219,8 @@ private fun HomeFeedBackground() {
 private fun HomeFeedOverlay(
     onCommentsClick: () -> Unit,
     selectedTab: BottomTab,
-    onTabSelected: (BottomTab) -> Unit
+    onTabSelected: (BottomTab) -> Unit,
+    onCreateClick: () -> Unit
 ) {
     Box(modifier = Modifier.fillMaxSize()) {
         TopTabs(
@@ -205,7 +248,8 @@ private fun HomeFeedOverlay(
                 .align(Alignment.BottomCenter)
                 .navigationBarsPadding(),
             selectedTab = selectedTab,
-            onTabSelected = onTabSelected
+            onTabSelected = onTabSelected,
+            onCreateClick = onCreateClick
         )
     }
 }
@@ -411,7 +455,8 @@ private fun MusicDisc() {
 private fun BottomNavBar(
     modifier: Modifier = Modifier,
     selectedTab: BottomTab,
-    onTabSelected: (BottomTab) -> Unit
+    onTabSelected: (BottomTab) -> Unit,
+    onCreateClick: () -> Unit
 ) {
     Surface(
         modifier = modifier.fillMaxWidth(),
@@ -431,7 +476,7 @@ private fun BottomNavBar(
                 onClick = { onTabSelected(BottomTab.Home) }
             )
             NavItem(icon = Icons.Outlined.Search, label = "Discover")
-            CreateButton()
+            CreateButton(onClick = onCreateClick)
             NavItem(icon = Icons.Outlined.ChatBubble, label = "Inbox")
             NavItem(
                 icon = Icons.Outlined.PersonOutline,
@@ -472,7 +517,8 @@ private fun NavItem(
 @Composable
 private fun TikTokProfileScreen(
     selectedTab: BottomTab,
-    onTabSelected: (BottomTab) -> Unit
+    onTabSelected: (BottomTab) -> Unit,
+    onCreateClick: () -> Unit
 ) {
     Box(
         modifier = Modifier
@@ -498,7 +544,8 @@ private fun TikTokProfileScreen(
                 .align(Alignment.BottomCenter)
                 .navigationBarsPadding(),
             selectedTab = selectedTab,
-            onTabSelected = onTabSelected
+            onTabSelected = onTabSelected,
+            onCreateClick = onCreateClick
         )
     }
 }
@@ -783,11 +830,12 @@ private data class ProfileTileData(
 )
 
 @Composable
-private fun CreateButton() {
+private fun CreateButton(onClick: () -> Unit) {
     Box(
         modifier = Modifier
             .width(44.dp)
-            .height(28.dp),
+            .height(28.dp)
+            .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
         Box(
@@ -817,6 +865,91 @@ private fun CreateButton() {
                 tint = Color.Black,
                 modifier = Modifier.size(18.dp)
             )
+        }
+    }
+}
+
+@Composable
+private fun UploadCaptionSheet(
+    selectedVideoUri: Uri?,
+    caption: String,
+    onCaptionChange: (String) -> Unit,
+    onDismiss: () -> Unit,
+    onPost: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.55f))
+            .clickable(onClick = onDismiss),
+        contentAlignment = Alignment.BottomCenter
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(enabled = false) {}
+                .navigationBarsPadding(),
+            color = Color.White,
+            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+            tonalElevation = 0.dp,
+            shadowElevation = 10.dp
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 18.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Text(
+                    text = "New video",
+                    color = Color.Black,
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                )
+                Text(
+                    text = selectedVideoUri?.lastPathSegment ?: "Selected video",
+                    color = TikTokTextSecondary,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                OutlinedTextField(
+                    value = caption,
+                    onValueChange = onCaptionChange,
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 4,
+                    maxLines = 6,
+                    label = { Text("Caption") },
+                    placeholder = { Text("Write a caption for your video") }
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Surface(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable(onClick = onDismiss),
+                        color = TikTokSurfaceVariant,
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier.padding(vertical = 14.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "Cancel",
+                                color = Color.Black,
+                                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
+                            )
+                        }
+                    }
+                    Button(
+                        onClick = onPost,
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("Post")
+                    }
+                }
+            }
         }
     }
 }
