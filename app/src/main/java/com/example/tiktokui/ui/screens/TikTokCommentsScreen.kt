@@ -52,22 +52,32 @@ import com.example.tiktokui.ui.theme.TikTokUITheme
 @Composable
 fun TikTokCommentsScreen(
     modifier: Modifier = Modifier,
+    onDismissRequest: () -> Unit = {},
+    showStandaloneBackdrop: Boolean = true,
     comments: List<CommentUiModel> = sampleComments
 ) {
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(Color(0xFF141414), Color(0xFF0B0B0B))
-                )
+            .then(
+                if (showStandaloneBackdrop) {
+                    Modifier.background(
+                        Brush.verticalGradient(
+                            colors = listOf(Color(0xFF141414), Color(0xFF0B0B0B))
+                        )
+                    )
+                } else {
+                    Modifier.background(Color.Black.copy(alpha = 0.42f))
+                }
             )
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(TikTokScrim)
-        )
+        if (showStandaloneBackdrop) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(TikTokScrim)
+            )
+        }
 
         Column(
             modifier = Modifier
@@ -84,7 +94,10 @@ fun TikTokCommentsScreen(
             ) {
                 Column(modifier = Modifier.fillMaxWidth()) {
                     DragHandle()
-                    CommentsHeader(totalComments = "45.2K")
+                    CommentsHeader(
+                        totalComments = "45.2K",
+                        onDismissRequest = onDismissRequest
+                    )
                     SortRow()
                     HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.65f))
                     LazyColumn(
@@ -124,7 +137,7 @@ private fun DragHandle() {
 }
 
 @Composable
-private fun CommentsHeader(totalComments: String) {
+private fun CommentsHeader(totalComments: String, onDismissRequest: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -143,13 +156,13 @@ private fun CommentsHeader(totalComments: String) {
             modifier = Modifier.align(Alignment.CenterEnd),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = {}) {
+            IconButton(onClick = onDismissRequest) {
                 Icon(
                     imageVector = Icons.Rounded.KeyboardArrowDown,
                     contentDescription = "Collapse comments"
                 )
             }
-            IconButton(onClick = {}) {
+            IconButton(onClick = onDismissRequest) {
                 Icon(
                     imageVector = Icons.Rounded.Close,
                     contentDescription = "Close comments"
