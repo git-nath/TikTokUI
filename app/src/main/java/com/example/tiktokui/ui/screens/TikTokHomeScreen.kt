@@ -65,10 +65,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -91,6 +91,12 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.example.tiktokui.data.AppPersistedState
+import com.example.tiktokui.data.LocalTikTokStore
+import com.example.tiktokui.data.PlayOrder
+import com.example.tiktokui.data.SelectedFolder
+import com.example.tiktokui.data.SharedLinkItem
+import com.example.tiktokui.data.StoredVideo
 import com.example.tiktokui.ui.theme.TikTokAccent
 import com.example.tiktokui.ui.theme.TikTokOutline
 import com.example.tiktokui.ui.theme.TikTokSurfaceVariant
@@ -99,11 +105,18 @@ import com.example.tiktokui.ui.theme.TikTokUITheme
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
 
 @Composable
-fun TikTokHomeScreen(modifier: Modifier = Modifier) {
+fun TikTokHomeScreen(
+    modifier: Modifier = Modifier,
+    incomingSharedText: String? = null,
+    onSharedTextConsumed: () -> Unit = {}
+) {
     val context = LocalContext.current
-    val uploadedPosts = remember { mutableStateListOf<VideoPostUiModel>() }
+    val store = remember(context) { LocalTikTokStore(context) }
+    val scope = rememberCoroutineScope()
+    var appState by remember { mutableStateOf(store.load()) }
     val samplePosts = remember { sampleFeedPosts() }
     var selectedTab by rememberSaveable { mutableStateOf(BottomTab.Home) }
     var showComments by rememberSaveable { mutableStateOf(false) }
@@ -112,21 +125,83 @@ fun TikTokHomeScreen(modifier: Modifier = Modifier) {
     var pausedVideoId by rememberSaveable { mutableStateOf<String?>(null) }
     var editingPostId by rememberSaveable { mutableStateOf<String?>(null) }
     var editingCaptionText by rememberSaveable { mutableStateOf("") }
+    var expandedCaptionPostId by rememberSaveable { mutableStateOf<String?>(null) }
     val videoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         selectedVideoUri = uri
         if (uri != null) caption = ""
     }
-    val homeFeedPosts = remember(uploadedPosts.size) { uploadedPosts + samplePosts }
+    val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            store.takePersistablePermission(uri)
+            val folderName = store.resolveDisplayName(uri)
+            val importedVideos = withContext(Dispatchers.IO) {
+                store.scanFolderVideos(uri).mapNotNull { source ->
+                    val alreadyImported = appState.videos.any { it.sourceUri == source.uri.toString() }
+                    if (alreadyImported) {
+                        null
+                    } else {
+                        StoredVideo(
+                            id = UUID.randomUUID().toString(),
+                            localPath = store.copyIntoLibrary(source.uri, source.displayName),
+                            sourceUri = source.uri.toString(),
+                            sourceFolderUri = uri.toString(),
+                            displayName = source.displayName,
+                            caption = source.displayName.substringBeforeLast('.')
+                        )
+                    }
+                }
+            }
+            appState = appState.copy(
+                folders = (appState.folders + SelectedFolder(uri = uri.toString(), name = folderName)).distinctBy { it.uri },
+                videos = (importedVideos + appState.videos).distinctBy { it.localPath }
+            )
+        }
+    }
+
+    LaunchedEffect(appState) {
+        store.save(appState)
+    }
+
+    LaunchedEffect(incomingSharedText) {
+        val sharedText = incomingSharedText?.trim().orEmpty()
+        if (sharedText.startsWith("http://") || sharedText.startsWith("https://")) {
+            appState = appState.copy(
+                inboxLinks = listOf(
+                    SharedLinkItem(
+                        id = UUID.randomUUID().toString(),
+                        url = sharedText,
+                        receivedAt = System.currentTimeMillis()
+                    )
+                ) + appState.inboxLinks
+            )
+            selectedTab = BottomTab.Inbox
+            onSharedTextConsumed()
+        }
+    }
+
+    val homeFeedPosts = remember(appState.videos, appState.playOrder) {
+        val importedPosts = appState.videos.map { it.toVideoPostUiModel() }
+        val orderedPosts = when (appState.playOrder) {
+            PlayOrder.Sequential -> importedPosts
+            PlayOrder.Shuffle -> importedPosts.shuffled()
+        }
+        orderedPosts + samplePosts
+    }
     val pagerState = rememberPagerState(initialPage = 0) { homeFeedPosts.size }
 
     LaunchedEffect(homeFeedPosts.size) {
-        if (selectedTab == BottomTab.Home && uploadedPosts.isNotEmpty() && pagerState.currentPage != 0) {
+        if (selectedTab == BottomTab.Home && appState.videos.isNotEmpty() && pagerState.currentPage != 0) {
             pagerState.animateScrollToPage(0)
         }
     }
 
     LaunchedEffect(pagerState.currentPage, selectedTab) {
-        if (selectedTab == BottomTab.Home) pausedVideoId = null
+        if (selectedTab == BottomTab.Home) {
+            pausedVideoId = null
+            showComments = false
+            expandedCaptionPostId = null
+        }
     }
 
     Box(modifier = modifier.fillMaxSize()) {
@@ -143,12 +218,16 @@ fun TikTokHomeScreen(modifier: Modifier = Modifier) {
                     editingPostId = post.id
                     editingCaptionText = post.caption
                 },
+                expandedCaptionPostId = expandedCaptionPostId,
+                onToggleCaption = { postId ->
+                    expandedCaptionPostId = if (expandedCaptionPostId == postId) null else postId
+                },
                 selectedTab = selectedTab,
                 onTabSelected = { tapped ->
-                    selectedTab = if (tapped == BottomTab.Profile && selectedTab == BottomTab.Profile) {
-                        BottomTab.Home
-                    } else {
-                        tapped
+                    selectedTab = when {
+                        tapped == BottomTab.Profile && selectedTab == BottomTab.Profile -> BottomTab.Home
+                        tapped == BottomTab.Inbox && selectedTab == BottomTab.Inbox -> BottomTab.Home
+                        else -> tapped
                     }
                 },
                 onCreateClick = {
@@ -158,10 +237,31 @@ fun TikTokHomeScreen(modifier: Modifier = Modifier) {
             )
 
             BottomTab.Profile -> TikTokProfileScreen(
-                postedVideos = uploadedPosts,
+                postedVideos = appState.videos.map { it.toVideoPostUiModel() },
+                selectedFolders = appState.folders,
+                playOrder = appState.playOrder,
                 selectedTab = selectedTab,
                 onTabSelected = { tapped ->
                     selectedTab = if (tapped == BottomTab.Profile) BottomTab.Home else tapped
+                },
+                onCreateClick = { videoPicker.launch("video/*") },
+                onAddFolderClick = { folderPicker.launch(null) },
+                onTogglePlayOrder = {
+                    appState = appState.copy(
+                        playOrder = if (appState.playOrder == PlayOrder.Sequential) {
+                            PlayOrder.Shuffle
+                        } else {
+                            PlayOrder.Sequential
+                        }
+                    )
+                }
+            )
+
+            BottomTab.Inbox -> InboxScreen(
+                links = appState.inboxLinks,
+                selectedTab = selectedTab,
+                onTabSelected = { tapped ->
+                    selectedTab = if (tapped == BottomTab.Inbox) BottomTab.Home else tapped
                 },
                 onCreateClick = { videoPicker.launch("video/*") }
             )
@@ -185,22 +285,17 @@ fun TikTokHomeScreen(modifier: Modifier = Modifier) {
                 },
                 onPost = {
                     val uri = selectedVideoUri ?: return@UploadCaptionSheet
-                    uploadedPosts.add(
-                        0,
-                        VideoPostUiModel(
-                            id = UUID.randomUUID().toString(),
-                            uri = persistReadPermission(context, uri),
-                            username = "@you",
-                            caption = caption.ifBlank { "New post" },
-                            song = "Original sound - You",
-                            likes = "0",
-                            comments = "0",
-                            shares = "Share",
-                            avatarBrush = Brush.linearGradient(
-                                listOf(Color(0xFF32E0C4), Color(0xFF0E6BA8))
-                            ),
-                            isEditable = true
-                        )
+                    appState = appState.copy(
+                        videos = listOf(
+                            StoredVideo(
+                                id = UUID.randomUUID().toString(),
+                                localPath = store.copyIntoLibrary(uri, store.resolveDisplayName(uri)),
+                                sourceUri = uri.toString(),
+                                sourceFolderUri = null,
+                                displayName = store.resolveDisplayName(uri),
+                                caption = caption.ifBlank { "New post" }
+                            )
+                        ) + appState.videos
                     )
                     selectedVideoUri = null
                     caption = ""
@@ -220,9 +315,11 @@ fun TikTokHomeScreen(modifier: Modifier = Modifier) {
                     editingCaptionText = ""
                 },
                 onSave = {
-                    val index = uploadedPosts.indexOfFirst { it.id == editingPostId }
+                    val index = appState.videos.indexOfFirst { it.id == editingPostId }
                     if (index >= 0) {
-                        uploadedPosts[index] = uploadedPosts[index].copy(caption = editingCaptionText)
+                        val updatedVideos = appState.videos.toMutableList()
+                        updatedVideos[index] = updatedVideos[index].copy(caption = editingCaptionText)
+                        appState = appState.copy(videos = updatedVideos)
                     }
                     editingPostId = null
                     editingCaptionText = ""
@@ -240,6 +337,8 @@ private fun HomeFeedPager(
     onTogglePlayback: (String) -> Unit,
     onCommentsClick: () -> Unit,
     onEditCaptionClick: (VideoPostUiModel) -> Unit,
+    expandedCaptionPostId: String?,
+    onToggleCaption: (String) -> Unit,
     selectedTab: BottomTab,
     onTabSelected: (BottomTab) -> Unit,
     onCreateClick: () -> Unit
@@ -253,7 +352,9 @@ private fun HomeFeedPager(
                 isPaused = pausedVideoId == post.id,
                 onTogglePlayback = { onTogglePlayback(post.id) },
                 onCommentsClick = onCommentsClick,
-                onEditCaptionClick = onEditCaptionClick
+                onEditCaptionClick = onEditCaptionClick,
+                isCaptionExpanded = expandedCaptionPostId == post.id,
+                onToggleCaption = { onToggleCaption(post.id) }
             )
         }
 
@@ -274,7 +375,9 @@ private fun HomeFeedPage(
     isPaused: Boolean,
     onTogglePlayback: () -> Unit,
     onCommentsClick: () -> Unit,
-    onEditCaptionClick: (VideoPostUiModel) -> Unit
+    onEditCaptionClick: (VideoPostUiModel) -> Unit,
+    isCaptionExpanded: Boolean,
+    onToggleCaption: () -> Unit
 ) {
     Box(modifier = Modifier.fillMaxSize()) {
         if (post.uri != null) {
@@ -303,7 +406,9 @@ private fun HomeFeedPage(
             post = post,
             showTabs = post.uri == null,
             onCommentsClick = onCommentsClick,
-            onEditCaptionClick = onEditCaptionClick
+            onEditCaptionClick = onEditCaptionClick,
+            isCaptionExpanded = isCaptionExpanded,
+            onToggleCaption = onToggleCaption
         )
     }
 }
@@ -336,7 +441,9 @@ private fun FeedOverlay(
     post: VideoPostUiModel,
     showTabs: Boolean,
     onCommentsClick: () -> Unit,
-    onEditCaptionClick: (VideoPostUiModel) -> Unit
+    onEditCaptionClick: (VideoPostUiModel) -> Unit,
+    isCaptionExpanded: Boolean,
+    onToggleCaption: () -> Unit
 ) {
     Box(modifier = Modifier.fillMaxSize()) {
         if (showTabs) {
@@ -346,8 +453,19 @@ private fun FeedOverlay(
         BottomMetaBlock(
             modifier = Modifier.align(Alignment.BottomStart).navigationBarsPadding(),
             post = post,
-            onEditCaptionClick = { onEditCaptionClick(post) }
+            onEditCaptionClick = { onEditCaptionClick(post) },
+            isCaptionExpanded = isCaptionExpanded,
+            onToggleCaption = onToggleCaption
         )
+
+        if (isCaptionExpanded) {
+            CenteredCaptionOverlay(
+                modifier = Modifier.align(Alignment.Center),
+                post = post,
+                onEditCaptionClick = { onEditCaptionClick(post) },
+                onDismiss = onToggleCaption
+            )
+        }
 
         RightActionRail(
             modifier = Modifier
@@ -449,10 +567,10 @@ private fun TopTabs(modifier: Modifier = Modifier) {
 private fun BottomMetaBlock(
     modifier: Modifier = Modifier,
     post: VideoPostUiModel,
-    onEditCaptionClick: () -> Unit
+    onEditCaptionClick: () -> Unit,
+    isCaptionExpanded: Boolean,
+    onToggleCaption: () -> Unit
 ) {
-    val scrollState = rememberScrollState()
-
     Column(modifier = modifier.fillMaxWidth(0.78f).padding(start = 16.dp, bottom = 76.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -500,24 +618,18 @@ private fun BottomMetaBlock(
         }
         Spacer(modifier = Modifier.height(10.dp))
         Surface(
-            color = Color.Black.copy(alpha = 0.30f),
-            shape = RoundedCornerShape(18.dp)
+            color = if (isCaptionExpanded) Color.White.copy(alpha = 0.16f) else Color.Black.copy(alpha = 0.30f),
+            shape = RoundedCornerShape(18.dp),
+            modifier = Modifier.clickable(onClick = onToggleCaption)
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .requiredHeightIn(max = 220.dp)
-                    .verticalScroll(scrollState)
-                    .padding(horizontal = 14.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
+            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp)) {
                 Text(
-                    text = post.caption,
+                    text = if (isCaptionExpanded) "Hide caption" else "See caption",
                     color = Color.White,
                     style = MaterialTheme.typography.bodyMedium.copy(
                         fontSize = 15.sp,
-                        lineHeight = 24.sp,
-                        fontWeight = FontWeight.Medium
+                        lineHeight = 20.sp,
+                        fontWeight = FontWeight.SemiBold
                     )
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -536,6 +648,102 @@ private fun BottomMetaBlock(
                         overflow = TextOverflow.Ellipsis
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CenteredCaptionOverlay(
+    modifier: Modifier = Modifier,
+    post: VideoPostUiModel,
+    onEditCaptionClick: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val scrollState = rememberScrollState()
+    Surface(
+        modifier = modifier
+            .fillMaxWidth(0.70f)
+            .requiredHeightIn(min = 220.dp, max = 560.dp),
+        color = Color.Black.copy(alpha = 0.58f),
+        shape = RoundedCornerShape(28.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.12f))
+    ) {
+        Column(
+            modifier = Modifier.fillMaxSize().padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = post.username,
+                    color = Color.White,
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (post.isEditable) {
+                        Surface(color = Color.White.copy(alpha = 0.12f), shape = RoundedCornerShape(12.dp)) {
+                            Row(
+                                modifier = Modifier.clickable(onClick = onEditCaptionClick).padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Edit,
+                                    contentDescription = "Edit caption",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Text(
+                                    text = "Edit",
+                                    color = Color.White,
+                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold)
+                                )
+                            }
+                        }
+                    }
+                    Surface(color = Color.White.copy(alpha = 0.12f), shape = RoundedCornerShape(12.dp)) {
+                        Text(
+                            text = "Done",
+                            color = Color.White,
+                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                            modifier = Modifier.clickable(onClick = onDismiss).padding(horizontal = 10.dp, vertical = 6.dp)
+                        )
+                    }
+                }
+            }
+            Column(
+                modifier = Modifier.fillMaxWidth().weight(1f).verticalScroll(scrollState),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Text(
+                    text = post.caption,
+                    color = Color.White,
+                    style = MaterialTheme.typography.bodyLarge.copy(
+                        fontSize = 16.sp,
+                        lineHeight = 27.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                )
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Rounded.MusicNote,
+                    contentDescription = null,
+                    tint = Color.White.copy(alpha = 0.88f),
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = post.song,
+                    color = Color.White.copy(alpha = 0.92f),
+                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Medium),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
         }
     }
@@ -684,8 +892,10 @@ private fun BottomNavBar(
             NavItem(
                 icon = Icons.Outlined.ChatBubble,
                 label = "Inbox",
+                selected = selectedTab == BottomTab.Inbox,
                 activeColor = foreground,
-                inactiveColor = secondary
+                inactiveColor = secondary,
+                onClick = { onTabSelected(BottomTab.Inbox) }
             )
             NavItem(
                 icon = Icons.Outlined.PersonOutline,
@@ -730,17 +940,170 @@ private fun NavItem(
 @Composable
 private fun TikTokProfileScreen(
     postedVideos: List<VideoPostUiModel>,
+    selectedFolders: List<SelectedFolder>,
+    playOrder: PlayOrder,
     selectedTab: BottomTab,
     onTabSelected: (BottomTab) -> Unit,
-    onCreateClick: () -> Unit
+    onCreateClick: () -> Unit,
+    onAddFolderClick: () -> Unit,
+    onTogglePlayOrder: () -> Unit
 ) {
     Box(modifier = Modifier.fillMaxSize().background(Color.White)) {
         Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
             ProfileTopBar()
             HorizontalDivider(color = TikTokOutline)
             ProfileHeader(totalPosts = postedVideos.size)
+            FolderManagerCard(
+                folders = selectedFolders,
+                playOrder = playOrder,
+                onAddFolderClick = onAddFolderClick,
+                onTogglePlayOrder = onTogglePlayOrder
+            )
             ProfileTabRow()
             ProfileGrid(modifier = Modifier.weight(1f), postedVideos = postedVideos)
+        }
+
+        BottomNavBar(
+            modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding(),
+            selectedTab = selectedTab,
+            onTabSelected = onTabSelected,
+            onCreateClick = onCreateClick,
+            darkTheme = false
+        )
+    }
+}
+
+@Composable
+private fun FolderManagerCard(
+    folders: List<SelectedFolder>,
+    playOrder: PlayOrder,
+    onAddFolderClick: () -> Unit,
+    onTogglePlayOrder: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        color = Color(0xFFF7F7F7),
+        shape = RoundedCornerShape(18.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, TikTokOutline.copy(alpha = 0.6f))
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                text = "Private videos",
+                color = Color.Black,
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+            )
+            Text(
+                text = if (folders.isEmpty()) {
+                    "No folders selected yet. Add one or more folders and the app will scan videos into LocalTikTok."
+                } else {
+                    folders.joinToString(separator = "\n") { "\u2022 ${it.name}" }
+                },
+                color = TikTokTextSecondary,
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 5,
+                overflow = TextOverflow.Ellipsis
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Surface(
+                    modifier = Modifier.weight(1f).clickable(onClick = onAddFolderClick),
+                    color = Color.White,
+                    shape = RoundedCornerShape(12.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, TikTokOutline)
+                ) {
+                    Box(modifier = Modifier.padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
+                        Text(
+                            text = "Add folder",
+                            color = Color.Black,
+                            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
+                        )
+                    }
+                }
+                Surface(
+                    modifier = Modifier.weight(1f).clickable(onClick = onTogglePlayOrder),
+                    color = Color(0xFF111111),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Box(modifier = Modifier.padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
+                        Text(
+                            text = if (playOrder == PlayOrder.Sequential) "Sequential" else "Shuffle",
+                            color = Color.White,
+                            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun InboxScreen(
+    links: List<SharedLinkItem>,
+    selectedTab: BottomTab,
+    onTabSelected: (BottomTab) -> Unit,
+    onCreateClick: () -> Unit
+) {
+    Box(modifier = Modifier.fillMaxSize().background(Color.White)) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .padding(horizontal = 18.dp, vertical = 18.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Text(
+                text = "Inbox",
+                color = Color.Black,
+                style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold)
+            )
+            Text(
+                text = "Shared links from TikTok, YouTube, browsers, and other apps are saved here.",
+                color = TikTokTextSecondary,
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (links.isEmpty()) {
+                    Surface(
+                        color = Color(0xFFF7F7F7),
+                        shape = RoundedCornerShape(18.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, TikTokOutline.copy(alpha = 0.6f))
+                    ) {
+                        Text(
+                            text = "No shared links yet. Use Android Share on a link and choose this app.",
+                            color = TikTokTextSecondary,
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(16.dp)
+                        )
+                    }
+                } else {
+                    links.forEach { link ->
+                        Surface(
+                            color = Color(0xFFF7F7F7),
+                            shape = RoundedCornerShape(18.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, TikTokOutline.copy(alpha = 0.6f))
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Text(
+                                    text = link.url,
+                                    color = Color.Black,
+                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = "Saved for later processing",
+                                    color = TikTokTextSecondary,
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         BottomNavBar(
@@ -1242,7 +1605,7 @@ private fun sampleFeedPosts(): List<VideoPostUiModel> = listOf(
     )
 )
 
-private enum class BottomTab { Home, Profile }
+private enum class BottomTab { Home, Inbox, Profile }
 
 private sealed interface ProfileGridItem {
     data class VideoTile(val post: VideoPostUiModel) : ProfileGridItem
@@ -1261,6 +1624,24 @@ private data class VideoPostUiModel(
     val avatarBrush: Brush,
     val isEditable: Boolean = false
 )
+
+private fun StoredVideo.toVideoPostUiModel(): VideoPostUiModel {
+    val uri = Uri.fromFile(java.io.File(localPath))
+    return VideoPostUiModel(
+        id = id,
+        uri = uri,
+        username = "@you",
+        caption = caption,
+        song = displayName,
+        likes = "0",
+        comments = comments.size.toString(),
+        shares = "Share",
+        avatarBrush = Brush.linearGradient(
+            listOf(Color(0xFF32E0C4), Color(0xFF0E6BA8))
+        ),
+        isEditable = true
+    )
+}
 
 @Preview(showBackground = true, backgroundColor = 0xFF000000)
 @Composable
