@@ -17,6 +17,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -837,6 +838,7 @@ private fun CenteredCaptionOverlay(
     var draftCaption by rememberSaveable(post.id, post.caption) { mutableStateOf(post.caption) }
     val scrollState = rememberScrollState()
     val panelAlpha by animateFloatAsState(if (post.isEditable) 0.96f else 0.92f, label = "captionPanelAlpha")
+    val panelInteractionSource = remember { MutableInteractionSource() }
     Box(
         modifier = Modifier.fillMaxSize()
     ) {
@@ -857,7 +859,11 @@ private fun CenteredCaptionOverlay(
                 modifier = Modifier
                     .fillMaxWidth(0.70f)
                     .requiredHeightIn(min = 210.dp, max = 560.dp)
-                    .clickable(enabled = false) {},
+                    .clickable(
+                        interactionSource = panelInteractionSource,
+                        indication = null,
+                        onClick = {}
+                    ),
                 color = Color(0xFF111111).copy(alpha = panelAlpha),
                 shape = RoundedCornerShape(topEnd = 24.dp, bottomEnd = 24.dp)
             ) {
