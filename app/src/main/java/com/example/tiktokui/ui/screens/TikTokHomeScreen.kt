@@ -299,7 +299,12 @@ fun TikTokHomeScreen(
                                 updatedVideos[index] = favoritedVideo
                                 appState = appState.copy(videos = updatedVideos)
                                 favoriteMoveProgress = favoriteMoveProgress?.copy(progress = 100)
-                                Toast.makeText(context, "Moved to Local TikTok Favorite", Toast.LENGTH_SHORT).show()
+                                val message = if (favoritedVideo.localPath == appState.videos[index].localPath) {
+                                    "Already in Local TikTok Favorite"
+                                } else {
+                                    "Moved to Local TikTok Favorite"
+                                }
+                                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
                             }.onFailure {
                                 favoriteMoveProgress = null
                                 Toast.makeText(context, "Couldn't add this video to favorites", Toast.LENGTH_SHORT).show()
@@ -924,8 +929,8 @@ private fun FavoriteDisc(enabled: Boolean, onClick: () -> Unit) {
     ) {
         Box(
             modifier = Modifier
-                .size(18.dp)
-                .clip(CircleShape)
+                .size(width = 20.dp, height = 22.dp)
+                .clip(RoundedCornerShape(6.dp))
                 .background(Color(0xFFF5C542)),
             contentAlignment = Alignment.Center
         ) {
@@ -933,7 +938,7 @@ private fun FavoriteDisc(enabled: Boolean, onClick: () -> Unit) {
                 imageVector = Icons.Outlined.TurnedInNot,
                 contentDescription = "Add to favorites",
                 tint = Color.Black,
-                modifier = Modifier.size(13.dp)
+                modifier = Modifier.size(15.dp)
             )
         }
     }

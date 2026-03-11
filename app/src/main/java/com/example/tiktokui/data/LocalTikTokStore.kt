@@ -120,11 +120,27 @@ class LocalTikTokStore(private val context: Context) {
     fun favoriteVideo(video: StoredVideo, onProgress: (Int) -> Unit = {}): StoredVideo {
         val targetDir = File(context.filesDir, favoritesDirName).apply { mkdirs() }
         val safeName = video.displayName.ifBlank { "favorite_${System.currentTimeMillis()}.mp4" }
-        val target = createUniqueTargetFile(targetDir, safeName)
         val sourceUri = video.sourceUri?.takeIf { it.isNotBlank() }?.let(Uri::parse)
         val currentFile = video.localPath
             .takeIf { it.isNotBlank() && !it.startsWith("content://") && !it.startsWith("file://") }
             ?.let(::File)
+        val sourceSize = when {
+            currentFile != null && currentFile.exists() -> currentFile.length()
+            sourceUri != null -> resolveContentLength(sourceUri)
+            else -> -1L
+        }
+
+        if (currentFile?.parentFile?.absolutePath == targetDir.absolutePath) {
+            onProgress(100)
+            return video
+        }
+
+        findExistingFavorite(targetDir, safeName, sourceSize)?.let { existingFavorite ->
+            onProgress(100)
+            return video.copy(localPath = existingFavorite.absolutePath)
+        }
+
+        val target = createUniqueTargetFile(targetDir, safeName)
 
         when {
             currentFile != null && currentFile.exists() -> {
@@ -255,6 +271,15 @@ class LocalTikTokStore(private val context: Context) {
             counter++
         }
         return target
+    }
+
+    private fun findExistingFavorite(targetDir: File, preferredName: String, sourceSize: Long): File? {
+        val normalizedName = preferredName.trim().lowercase()
+        return targetDir.listFiles()?.firstOrNull { file ->
+            file.isFile &&
+                file.name.trim().lowercase() == normalizedName &&
+                (sourceSize <= 0L || file.length() == sourceSize)
+        }
     }
 
     private fun resolveContentLength(uri: Uri): Long {
