@@ -65,13 +65,14 @@ import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.TurnedInNot
-import androidx.compose.material.icons.rounded.Bookmark
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -120,6 +121,7 @@ import com.example.tiktokui.ui.theme.TikTokUITheme
 import java.util.UUID
 import java.io.File
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 
@@ -146,6 +148,7 @@ fun TikTokHomeScreen(
     var inboxPreviewUrl by rememberSaveable { mutableStateOf<String?>(null) }
     var inboxInspectUrl by rememberSaveable { mutableStateOf<String?>(null) }
     var allModeVideos by remember { mutableStateOf<List<StoredVideo>>(emptyList()) }
+    var favoriteMoveProgress by remember { mutableStateOf<FavoriteMoveProgress?>(null) }
 
     val loadAllVideos: suspend () -> Unit = {
         val scannedVideos = withContext(Dispatchers.IO) {
@@ -196,7 +199,7 @@ fun TikTokHomeScreen(
                     } else {
                         StoredVideo(
                             id = UUID.randomUUID().toString(),
-                            localPath = store.copyIntoLibrary(source.uri, source.displayName),
+                            localPath = source.uri.toString(),
                             sourceUri = source.uri.toString(),
                             sourceFolderUri = uri.toString(),
                             displayName = source.displayName,
@@ -278,17 +281,27 @@ fun TikTokHomeScreen(
                     if (index < 0) {
                         Toast.makeText(context, "Only your local videos can be added to favorites", Toast.LENGTH_SHORT).show()
                     } else {
+                        favoriteMoveProgress = FavoriteMoveProgress(
+                            videoName = appState.videos[index].displayName,
+                            progress = 0
+                        )
                         scope.launch {
                             runCatching {
                                 withContext(Dispatchers.IO) {
-                                    store.favoriteVideo(appState.videos[index])
+                                    store.favoriteVideo(appState.videos[index]) { progress ->
+                                        scope.launch {
+                                            favoriteMoveProgress = favoriteMoveProgress?.copy(progress = progress)
+                                        }
+                                    }
                                 }
                             }.onSuccess { favoritedVideo ->
                                 val updatedVideos = appState.videos.toMutableList()
                                 updatedVideos[index] = favoritedVideo
                                 appState = appState.copy(videos = updatedVideos)
+                                favoriteMoveProgress = favoriteMoveProgress?.copy(progress = 100)
                                 Toast.makeText(context, "Moved to Local TikTok Favorite", Toast.LENGTH_SHORT).show()
                             }.onFailure {
+                                favoriteMoveProgress = null
                                 Toast.makeText(context, "Couldn't add this video to favorites", Toast.LENGTH_SHORT).show()
                             }
                         }
@@ -387,14 +400,15 @@ fun TikTokHomeScreen(
                 },
                 onPost = {
                     val uri = selectedVideoUri ?: return@UploadCaptionSheet
+                    val persistedUri = persistReadPermission(context, uri)
                     appState = appState.copy(
                         videos = listOf(
                             StoredVideo(
                                 id = UUID.randomUUID().toString(),
-                                localPath = store.copyIntoLibrary(uri, store.resolveDisplayName(uri)),
-                                sourceUri = uri.toString(),
+                                localPath = persistedUri.toString(),
+                                sourceUri = persistedUri.toString(),
                                 sourceFolderUri = null,
-                                displayName = store.resolveDisplayName(uri),
+                                displayName = store.resolveDisplayName(persistedUri),
                                 caption = caption.ifBlank { "New post" }
                             )
                         ) + appState.videos
@@ -419,6 +433,13 @@ fun TikTokHomeScreen(
             LinkInspectSheet(
                 url = inboxInspectUrl!!,
                 onDismiss = { inboxInspectUrl = null }
+            )
+        }
+
+        favoriteMoveProgress?.let { progress ->
+            FavoriteMoveOverlay(
+                state = progress,
+                onDismiss = { favoriteMoveProgress = null }
             )
         }
 
@@ -909,11 +930,73 @@ private fun FavoriteDisc(enabled: Boolean, onClick: () -> Unit) {
             contentAlignment = Alignment.Center
         ) {
             Icon(
-                imageVector = Icons.Rounded.Bookmark,
+                imageVector = Icons.Outlined.TurnedInNot,
                 contentDescription = "Add to favorites",
                 tint = Color.Black,
                 modifier = Modifier.size(13.dp)
             )
+        }
+    }
+}
+
+@Composable
+private fun FavoriteMoveOverlay(state: FavoriteMoveProgress, onDismiss: () -> Unit) {
+    LaunchedEffect(state.progress) {
+        if (state.progress >= 100) {
+            delay(550)
+            onDismiss()
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.46f)),
+        contentAlignment = Alignment.Center
+    ) {
+        Surface(
+            color = Color(0xFF111111),
+            shape = RoundedCornerShape(24.dp),
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.08f))
+        ) {
+            Column(
+                modifier = Modifier
+                    .width(280.dp)
+                    .padding(horizontal = 20.dp, vertical = 18.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                CircularProgressIndicator(
+                    progress = (state.progress / 100f).coerceIn(0f, 1f),
+                    color = TikTokAccent,
+                    trackColor = Color.White.copy(alpha = 0.12f)
+                )
+                Text(
+                    text = if (state.progress >= 100) "Saved to favorites" else "Moving to favorites",
+                    color = Color.White,
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                    textAlign = TextAlign.Center
+                )
+                Text(
+                    text = state.videoName,
+                    color = Color.White.copy(alpha = 0.72f),
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center
+                )
+                LinearProgressIndicator(
+                    progress = (state.progress / 100f).coerceIn(0f, 1f),
+                    modifier = Modifier.fillMaxWidth(),
+                    color = Color(0xFFF5C542),
+                    trackColor = Color.White.copy(alpha = 0.12f)
+                )
+                Text(
+                    text = "${state.progress}%",
+                    color = Color.White,
+                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
+                )
+            }
         }
     }
 }
@@ -1082,7 +1165,7 @@ private fun FolderManagerCard(
                 )
                 if (folders.isEmpty()) {
                     Text(
-                        text = "No folders added yet. Add a folder and the app will import its videos into LocalTikTok.",
+                        text = "No folders added yet. Add a folder and the app will play videos directly from it.",
                         color = TikTokTextSecondary,
                         style = MaterialTheme.typography.bodyMedium
                     )
@@ -1106,7 +1189,7 @@ private fun FolderManagerCard(
                                             style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold)
                                         )
                                         Text(
-                                            text = "Imported into LocalTikTok",
+                                            text = "Playing from selected folder",
                                             color = TikTokTextSecondary,
                                             style = MaterialTheme.typography.bodySmall
                                         )
@@ -2065,6 +2148,11 @@ private data class VideoPostUiModel(
     val shares: String,
     val avatarBrush: Brush,
     val isEditable: Boolean = false
+)
+
+private data class FavoriteMoveProgress(
+    val videoName: String,
+    val progress: Int
 )
 
 private fun StoredVideo.toVideoPostUiModel(): VideoPostUiModel {

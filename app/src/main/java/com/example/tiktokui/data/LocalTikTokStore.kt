@@ -6,6 +6,7 @@ import android.provider.DocumentsContract
 import android.provider.MediaStore
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.BufferedInputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
@@ -116,7 +117,7 @@ class LocalTikTokStore(private val context: Context) {
         return target.absolutePath
     }
 
-    fun favoriteVideo(video: StoredVideo): StoredVideo {
+    fun favoriteVideo(video: StoredVideo, onProgress: (Int) -> Unit = {}): StoredVideo {
         val targetDir = File(context.filesDir, favoritesDirName).apply { mkdirs() }
         val safeName = video.displayName.ifBlank { "favorite_${System.currentTimeMillis()}.mp4" }
         val target = createUniqueTargetFile(targetDir, safeName)
@@ -129,17 +130,34 @@ class LocalTikTokStore(private val context: Context) {
             currentFile != null && currentFile.exists() -> {
                 if (!currentFile.renameTo(target)) {
                     currentFile.inputStream().use { input ->
-                        FileOutputStream(target).use { output -> input.copyTo(output) }
+                        FileOutputStream(target).use { output ->
+                            copyWithProgress(
+                                input = BufferedInputStream(input),
+                                output = output,
+                                totalBytes = currentFile.length(),
+                                onProgress = onProgress
+                            )
+                        }
                     }
                     if (!currentFile.delete()) {
                         throw IOException("Unable to delete original file after favoriting")
                     }
                 }
+                onProgress(100)
             }
             sourceUri != null -> {
                 context.contentResolver.openInputStream(sourceUri)?.use { input ->
-                    FileOutputStream(target).use { output -> input.copyTo(output) }
+                    FileOutputStream(target).use { output ->
+                        copyWithProgress(
+                            input = BufferedInputStream(input),
+                            output = output,
+                            totalBytes = resolveContentLength(sourceUri),
+                            onProgress = onProgress
+                        )
+                    }
                 } ?: throw IOException("Unable to open source video for favoriting")
+                deleteSourceIfPossible(sourceUri)
+                onProgress(100)
             }
             else -> throw IOException("Video source is unavailable")
         }
@@ -151,7 +169,7 @@ class LocalTikTokStore(private val context: Context) {
         runCatching {
             context.contentResolver.takePersistableUriPermission(
                 uri,
-                android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION
             )
         }
     }
@@ -237,6 +255,48 @@ class LocalTikTokStore(private val context: Context) {
             counter++
         }
         return target
+    }
+
+    private fun resolveContentLength(uri: Uri): Long {
+        return runCatching {
+            context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { descriptor ->
+                descriptor.length.takeIf { it >= 0 } ?: descriptor.declaredLength.takeIf { it >= 0 }
+            } ?: -1L
+        }.getOrDefault(-1L)
+    }
+
+    private fun copyWithProgress(
+        input: BufferedInputStream,
+        output: FileOutputStream,
+        totalBytes: Long,
+        onProgress: (Int) -> Unit
+    ) {
+        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        var copiedBytes = 0L
+        var lastProgress = -1
+        onProgress(0)
+        while (true) {
+            val read = input.read(buffer)
+            if (read <= 0) break
+            output.write(buffer, 0, read)
+            copiedBytes += read
+            if (totalBytes > 0) {
+                val progress = ((copiedBytes * 100) / totalBytes).toInt().coerceIn(0, 100)
+                if (progress != lastProgress) {
+                    lastProgress = progress
+                    onProgress(progress)
+                }
+            }
+        }
+        output.flush()
+    }
+
+    private fun deleteSourceIfPossible(uri: Uri) {
+        runCatching {
+            if (DocumentsContract.isDocumentUri(context, uri)) {
+                DocumentsContract.deleteDocument(context.contentResolver, uri)
+            }
+        }
     }
 }
 
