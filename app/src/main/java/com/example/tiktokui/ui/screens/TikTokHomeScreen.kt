@@ -91,6 +91,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -835,10 +836,20 @@ private fun CenteredCaptionOverlay(
     onDismiss: () -> Unit,
     onCaptionChange: (String) -> Unit
 ) {
-    var draftCaption by rememberSaveable(post.id, post.caption) { mutableStateOf(post.caption) }
+    var draftCaption by rememberSaveable(post.id) { mutableStateOf(post.caption) }
     val scrollState = rememberScrollState()
     val panelAlpha by animateFloatAsState(if (post.isEditable) 0.96f else 0.92f, label = "captionPanelAlpha")
     val panelInteractionSource = remember { MutableInteractionSource() }
+    val latestDraftCaption by rememberUpdatedState(draftCaption)
+    val initialCaption = post.caption
+
+    androidx.compose.runtime.DisposableEffect(post.id) {
+        onDispose {
+            if (post.isEditable && latestDraftCaption != initialCaption) {
+                onCaptionChange(latestDraftCaption.trim())
+            }
+        }
+    }
     Box(
         modifier = Modifier.fillMaxSize()
     ) {
@@ -882,10 +893,7 @@ private fun CenteredCaptionOverlay(
                         )
                         OutlinedTextField(
                             value = draftCaption,
-                            onValueChange = {
-                                draftCaption = it
-                                onCaptionChange(it)
-                            },
+                            onValueChange = { draftCaption = it },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .background(Color.Transparent),
