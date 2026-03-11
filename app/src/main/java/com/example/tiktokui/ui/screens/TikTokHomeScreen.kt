@@ -137,7 +137,17 @@ fun TikTokHomeScreen(
     val context = LocalContext.current
     val store = remember(context) { LocalTikTokStore(context) }
     val scope = rememberCoroutineScope()
-    var appState by remember { mutableStateOf(store.load()) }
+    var appState by remember {
+        mutableStateOf(
+            store.load().let { loaded ->
+                if (loaded.folders.isNotEmpty()) {
+                    loaded.copy(videoSourceMode = VideoSourceMode.Folders)
+                } else {
+                    loaded
+                }
+            }
+        )
+    }
     val samplePosts = remember { sampleFeedPosts() }
     var selectedTab by rememberSaveable { mutableStateOf(BottomTab.Home) }
     var showComments by rememberSaveable { mutableStateOf(false) }
@@ -215,7 +225,8 @@ fun TikTokHomeScreen(
             }
             appState = appState.copy(
                 folders = (appState.folders + SelectedFolder(uri = uri.toString(), name = folderName)).distinctBy { it.uri },
-                videos = (importedVideos + appState.videos).distinctBy { it.localPath }
+                videos = (importedVideos + appState.videos).distinctBy { it.localPath },
+                videoSourceMode = VideoSourceMode.Folders
             )
         }
     }
@@ -2244,42 +2255,25 @@ private fun openVideoLocation(context: Context, video: StoredVideo?) {
     val folderUri = video.sourceFolderUri
         ?.takeIf { it.isNotBlank() && it != "__all_videos__" }
         ?.let(Uri::parse)
-    val videoUri = when {
-        !video.sourceUri.isNullOrBlank() -> Uri.parse(video.sourceUri)
-        video.localPath.startsWith("content://") || video.localPath.startsWith("file://") -> Uri.parse(video.localPath)
-        else -> null
+
+    if (folderUri == null) {
+        Toast.makeText(context, "This video does not have a folder location to open", Toast.LENGTH_SHORT).show()
+        return
     }
 
-    val intents = buildList {
-        folderUri?.let { uri ->
-            add(
-                Intent(Intent.ACTION_VIEW).apply {
-                    setData(uri)
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-            )
-        }
-        videoUri?.let { uri ->
-            add(
-                Intent(Intent.ACTION_VIEW).apply {
-                    setDataAndType(uri, "video/*")
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-            )
-        }
-    }
-
-    val opened = intents.any { intent ->
-        runCatching {
-            context.startActivity(intent)
-            true
-        }.getOrDefault(false)
-    }
+    val opened = runCatching {
+        context.startActivity(
+            Intent(Intent.ACTION_VIEW).apply {
+                setData(folderUri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+        )
+        true
+    }.getOrDefault(false)
 
     if (!opened) {
-        Toast.makeText(context, "No app found to open this video location", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, "No app found to open this folder location", Toast.LENGTH_SHORT).show()
     }
 }
 
