@@ -19,6 +19,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -68,6 +69,7 @@ import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.TurnedInNot
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -243,6 +245,12 @@ fun TikTokHomeScreen(
             VideoSourceMode.Folders -> appState.videos.filter { it.sourceFolderUri != "__all_videos__" || appState.folders.isEmpty() }
         }
     }
+    val favoriteVideos = remember(appState.videos) {
+        appState.videos.filter { it.isFavoriteVideo() }
+    }
+    val regularProfileVideos = remember(appState.videos) {
+        appState.videos.filterNot { it.isFavoriteVideo() }
+    }
     val homeFeedPosts = remember(visibleVideos, appState.playOrder) {
         val importedPosts = visibleVideos.map { it.toVideoPostUiModel() }
         val orderedPosts = when (appState.playOrder) {
@@ -341,7 +349,8 @@ fun TikTokHomeScreen(
             )
 
             BottomTab.Profile -> TikTokProfileScreen(
-                postedVideos = appState.videos.map { it.toVideoPostUiModel() },
+                postedVideos = regularProfileVideos.map { it.toVideoPostUiModel() },
+                favoriteVideos = favoriteVideos.map { it.toVideoPostUiModel() },
                 selectedFolders = appState.folders,
                 playOrder = appState.playOrder,
                 videoSourceMode = appState.videoSourceMode,
@@ -785,10 +794,17 @@ private fun CenteredCaptionOverlay(
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     if (post.isEditable) {
+                        Text(
+                            text = "Edit caption",
+                            color = Color.White,
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold)
+                        )
                         OutlinedTextField(
                             value = post.caption,
                             onValueChange = onCaptionChange,
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color.Transparent),
                             minLines = 8,
                             maxLines = 20,
                             placeholder = { Text("Write caption", color = Color.White.copy(alpha = 0.55f)) },
@@ -798,7 +814,19 @@ private fun CenteredCaptionOverlay(
                                 lineHeight = 27.sp,
                                 fontWeight = FontWeight.Medium
                             ),
-                            shape = RoundedCornerShape(16.dp)
+                            shape = RoundedCornerShape(16.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Color.Transparent,
+                                unfocusedBorderColor = Color.Transparent,
+                                disabledBorderColor = Color.Transparent,
+                                errorBorderColor = Color.Transparent,
+                                focusedContainerColor = Color.Transparent,
+                                unfocusedContainerColor = Color.Transparent,
+                                disabledContainerColor = Color.Transparent,
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White,
+                                cursorColor = TikTokAccent
+                            )
                         )
                     } else {
                         Text(
@@ -1091,6 +1119,7 @@ private fun NavItem(
 @Composable
 private fun TikTokProfileScreen(
     postedVideos: List<VideoPostUiModel>,
+    favoriteVideos: List<VideoPostUiModel>,
     selectedFolders: List<SelectedFolder>,
     playOrder: PlayOrder,
     videoSourceMode: VideoSourceMode,
@@ -1115,6 +1144,12 @@ private fun TikTokProfileScreen(
             )
             when (selectedSection) {
                 ProfileSection.Posts -> ProfileGrid(modifier = Modifier.weight(1f), postedVideos = postedVideos)
+                ProfileSection.Favorites -> ProfileGrid(
+                    modifier = Modifier.weight(1f),
+                    postedVideos = favoriteVideos,
+                    emptyTitle = "No favorite videos yet",
+                    emptySubtitle = "Tap the favorite icon on any video to move it into your favorites folder."
+                )
                 ProfileSection.Folders -> FolderManagerCard(
                     modifier = Modifier.weight(1f),
                     folders = selectedFolders,
@@ -1610,7 +1645,7 @@ private fun ProfileTopBar() {
 @Composable
 private fun ProfileHeader(totalPosts: Int) {
     Column(
-        modifier = Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 14.dp),
+        modifier = Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Box(
@@ -1632,43 +1667,41 @@ private fun ProfileHeader(totalPosts: Int) {
             color = Color.Black,
             style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold)
         )
-        Spacer(modifier = Modifier.height(18.dp))
+        Spacer(modifier = Modifier.height(16.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(28.dp), verticalAlignment = Alignment.CenterVertically) {
             ProfileStat(value = "14", label = "Following")
             ProfileStat(value = "38", label = "Followers")
             ProfileStat(value = totalPosts.toString(), label = "Posts")
         }
         Spacer(modifier = Modifier.height(18.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Surface(
-                color = Color.White,
-                shape = RoundedCornerShape(4.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, TikTokOutline)
+        Surface(
+            color = Color(0xFFF6F7F9),
+            shape = RoundedCornerShape(18.dp),
+            border = androidx.compose.foundation.BorderStroke(1.dp, TikTokOutline.copy(alpha = 0.6f))
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
+                Icon(
+                    imageVector = Icons.Filled.Bookmark,
+                    contentDescription = "Favorite folder",
+                    tint = Color(0xFFF5C542),
+                    modifier = Modifier.size(18.dp)
+                )
                 Text(
-                    text = "Edit profile",
+                    text = "Favorite folder",
                     color = Color.Black,
-                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
-                    modifier = Modifier.padding(horizontal = 30.dp, vertical = 9.dp)
+                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
+                )
+                Text(
+                    text = "TikTokUi/Favorite Vidios",
+                    color = TikTokTextSecondary,
+                    style = MaterialTheme.typography.bodySmall
                 )
             }
-            Surface(
-                color = Color.White,
-                shape = RoundedCornerShape(4.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, TikTokOutline)
-            ) {
-                Box(modifier = Modifier.size(width = 36.dp, height = 36.dp), contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Outlined.TurnedInNot,
-                        contentDescription = "Bookmarks",
-                        tint = Color.Black,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-            }
         }
-        Spacer(modifier = Modifier.height(14.dp))
-        Text(text = "Tap to add bio", color = TikTokTextSecondary, style = MaterialTheme.typography.bodySmall)
     }
 }
 
@@ -1709,8 +1742,15 @@ private fun ProfileTabRow(
             )
             ProfileSectionChip(
                 modifier = Modifier.weight(1f),
+                label = "Favorites",
+                icon = Icons.Filled.Bookmark,
+                selected = selectedSection == ProfileSection.Favorites,
+                onClick = { onSectionSelected(ProfileSection.Favorites) }
+            )
+            ProfileSectionChip(
+                modifier = Modifier.weight(1f),
                 label = "Folders",
-                icon = Icons.Outlined.Lock,
+                icon = Icons.Rounded.Folder,
                 selected = selectedSection == ProfileSection.Folders,
                 onClick = { onSectionSelected(ProfileSection.Folders) }
             )
@@ -1754,24 +1794,32 @@ private fun ProfileSectionChip(
 }
 
 @Composable
-private fun ProfileGrid(modifier: Modifier = Modifier, postedVideos: List<VideoPostUiModel>) {
-    val tiles = remember(postedVideos) {
-        if (postedVideos.isEmpty()) listOf(ProfileGridItem.CreateCard)
-        else postedVideos.map { ProfileGridItem.VideoTile(it) }
+private fun ProfileGrid(
+    modifier: Modifier = Modifier,
+    postedVideos: List<VideoPostUiModel>,
+    emptyTitle: String = "No posts yet",
+    emptySubtitle: String = "Add a video to build your clean profile grid."
+) {
+    if (postedVideos.isEmpty()) {
+        Box(
+            modifier = modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp)
+        ) {
+            EmptyProfileGridCard(title = emptyTitle, subtitle = emptySubtitle)
+        }
+        return
     }
 
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
         LazyVerticalGrid(
             columns = GridCells.Fixed(3),
             modifier = Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 68.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            items(tiles) { tile ->
-                when (tile) {
-                    is ProfileGridItem.VideoTile -> ProfileVideoTile(tile.post)
-                    ProfileGridItem.CreateCard -> CreateCardTile()
-                }
+            items(postedVideos) { post ->
+                ProfileVideoTile(post)
             }
         }
     }
@@ -1783,8 +1831,8 @@ private fun ProfileVideoTile(post: VideoPostUiModel) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(156.dp)
-            .clip(RoundedCornerShape(20.dp))
+            .aspectRatio(0.78f)
+            .clip(RoundedCornerShape(4.dp))
             .background(Color.Black),
         contentAlignment = Alignment.BottomStart
     ) {
@@ -1802,71 +1850,65 @@ private fun ProfileVideoTile(post: VideoPostUiModel) {
                 )
             )
         }
-        Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.10f)))
-        Surface(
-            modifier = Modifier.padding(10.dp),
-            color = Color.Black.copy(alpha = 0.46f),
-            shape = RoundedCornerShape(12.dp)
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            Color.Transparent,
+                            Color.Black.copy(alpha = 0.18f),
+                            Color.Black.copy(alpha = 0.52f)
+                        )
+                    )
+                )
+        )
+        Row(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(horizontal = 8.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
+            Icon(
+                imageVector = Icons.Outlined.PlayArrow,
+                contentDescription = "Views",
+                tint = Color.White,
+                modifier = Modifier.size(14.dp)
+            )
+            Spacer(modifier = Modifier.width(4.dp))
             Text(
-                text = post.caption,
+                text = post.likes,
                 color = Color.White,
-                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold)
             )
         }
     }
 }
 
 @Composable
-private fun CreateCardTile() {
-    Box(
-        modifier = Modifier.fillMaxWidth().height(124.dp).background(
-            Brush.verticalGradient(listOf(Color(0xFFFDFDFD), Color(0xFFF6F4F4)))
-        ),
-        contentAlignment = Alignment.Center
+private fun EmptyProfileGridCard(title: String, subtitle: String) {
+    Surface(
+        color = Color(0xFFF6F7F9),
+        shape = RoundedCornerShape(24.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, TikTokOutline.copy(alpha = 0.6f))
     ) {
-        Surface(color = Color.White, shape = RoundedCornerShape(8.dp), shadowElevation = 2.dp) {
-            Column(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(2.dp)
-            ) {
-                Canvas(modifier = Modifier.width(80.dp).height(18.dp)) {
-                    drawCircle(Color(0xFF3CCAE6), radius = 10f, center = Offset(10f, size.height / 2))
-                    drawArc(
-                        color = Color(0xFFF74172),
-                        startAngle = 20f,
-                        sweepAngle = 220f,
-                        useCenter = false,
-                        topLeft = Offset(size.width * 0.28f, -4f),
-                        size = Size(38f, 28f),
-                        style = Stroke(width = 10f, cap = StrokeCap.Round)
-                    )
-                    drawArc(
-                        color = Color(0xFF212121),
-                        startAngle = 215f,
-                        sweepAngle = 100f,
-                        useCenter = false,
-                        topLeft = Offset(size.width * 0.58f, 1f),
-                        size = Size(24f, 20f),
-                        style = Stroke(width = 7f, cap = StrokeCap.Round)
-                    )
-                }
-                Text(
-                    text = "Tap to create",
-                    color = Color.Black,
-                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
-                )
-                Text(
-                    text = "a new video",
-                    color = Color.Black.copy(alpha = 0.78f),
-                    style = MaterialTheme.typography.bodySmall,
-                    textAlign = TextAlign.Center
-                )
-            }
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 18.dp, vertical = 22.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = title,
+                color = Color.Black,
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+            )
+            Text(
+                text = subtitle,
+                color = TikTokTextSecondary,
+                style = MaterialTheme.typography.bodyMedium
+            )
         }
     }
 }
@@ -2135,12 +2177,7 @@ private fun sampleFeedPosts(): List<VideoPostUiModel> = listOf(
 )
 
 private enum class BottomTab { Home, Inbox, Profile }
-private enum class ProfileSection { Posts, Folders }
-
-private sealed interface ProfileGridItem {
-    data class VideoTile(val post: VideoPostUiModel) : ProfileGridItem
-    data object CreateCard : ProfileGridItem
-}
+private enum class ProfileSection { Posts, Favorites, Folders }
 
 private data class VideoPostUiModel(
     val id: String,
@@ -2160,6 +2197,11 @@ private data class FavoriteMoveProgress(
     val videoName: String,
     val progress: Int
 )
+
+private fun StoredVideo.isFavoriteVideo(): Boolean {
+    val candidate = listOfNotNull(localPath, sourceUri).joinToString(" ").lowercase()
+    return "favorite vidios" in candidate || "local tiktok favorite" in candidate
+}
 
 private fun StoredVideo.toVideoPostUiModel(): VideoPostUiModel {
     val uri = when {
