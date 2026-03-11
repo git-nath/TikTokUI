@@ -4,7 +4,10 @@ import android.content.Intent
 import android.content.Context
 import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
+import android.media.ThumbnailUtils
 import android.net.Uri
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import android.widget.VideoView
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -102,6 +105,7 @@ import com.example.tiktokui.ui.theme.TikTokSurfaceVariant
 import com.example.tiktokui.ui.theme.TikTokTextSecondary
 import com.example.tiktokui.ui.theme.TikTokUITheme
 import java.util.UUID
+import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
@@ -125,6 +129,8 @@ fun TikTokHomeScreen(
     var editingPostId by rememberSaveable { mutableStateOf<String?>(null) }
     var editingCaptionText by rememberSaveable { mutableStateOf("") }
     var expandedCaptionPostId by rememberSaveable { mutableStateOf<String?>(null) }
+    var profileSection by rememberSaveable { mutableStateOf(ProfileSection.Posts) }
+    var inboxPreviewUrl by rememberSaveable { mutableStateOf<String?>(null) }
     val videoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         selectedVideoUri = uri
         if (uri != null) caption = ""
@@ -243,12 +249,14 @@ fun TikTokHomeScreen(
                 postedVideos = appState.videos.map { it.toVideoPostUiModel() },
                 selectedFolders = appState.folders,
                 playOrder = appState.playOrder,
+                selectedSection = profileSection,
                 selectedTab = selectedTab,
                 onTabSelected = { tapped ->
                     selectedTab = if (tapped == BottomTab.Profile) BottomTab.Home else tapped
                 },
                 onCreateClick = { videoPicker.launch("video/*") },
                 onAddFolderClick = { folderPicker.launch(null) },
+                onSectionSelected = { profileSection = it },
                 onTogglePlayOrder = {
                     appState = appState.copy(
                         playOrder = if (appState.playOrder == PlayOrder.Sequential) {
@@ -266,7 +274,8 @@ fun TikTokHomeScreen(
                 onTabSelected = { tapped ->
                     selectedTab = if (tapped == BottomTab.Inbox) BottomTab.Home else tapped
                 },
-                onCreateClick = { videoPicker.launch("video/*") }
+                onCreateClick = { videoPicker.launch("video/*") },
+                onPreviewLink = { inboxPreviewUrl = it }
             )
         }
 
@@ -580,6 +589,7 @@ private fun BottomMetaBlock(
                 }
             }
         }
+
     }
 }
 
@@ -838,10 +848,12 @@ private fun TikTokProfileScreen(
     postedVideos: List<VideoPostUiModel>,
     selectedFolders: List<SelectedFolder>,
     playOrder: PlayOrder,
+    selectedSection: ProfileSection,
     selectedTab: BottomTab,
     onTabSelected: (BottomTab) -> Unit,
     onCreateClick: () -> Unit,
     onAddFolderClick: () -> Unit,
+    onSectionSelected: (ProfileSection) -> Unit,
     onTogglePlayOrder: () -> Unit
 ) {
     Box(modifier = Modifier.fillMaxSize().background(Color.White)) {
@@ -849,14 +861,20 @@ private fun TikTokProfileScreen(
             ProfileTopBar()
             HorizontalDivider(color = TikTokOutline)
             ProfileHeader(totalPosts = postedVideos.size)
-            FolderManagerCard(
-                folders = selectedFolders,
-                playOrder = playOrder,
-                onAddFolderClick = onAddFolderClick,
-                onTogglePlayOrder = onTogglePlayOrder
+            ProfileTabRow(
+                selectedSection = selectedSection,
+                onSectionSelected = onSectionSelected
             )
-            ProfileTabRow()
-            ProfileGrid(modifier = Modifier.weight(1f), postedVideos = postedVideos)
+            when (selectedSection) {
+                ProfileSection.Posts -> ProfileGrid(modifier = Modifier.weight(1f), postedVideos = postedVideos)
+                ProfileSection.Folders -> FolderManagerCard(
+                    modifier = Modifier.weight(1f),
+                    folders = selectedFolders,
+                    playOrder = playOrder,
+                    onAddFolderClick = onAddFolderClick,
+                    onTogglePlayOrder = onTogglePlayOrder
+                )
+            }
         }
 
         BottomNavBar(
@@ -871,66 +889,102 @@ private fun TikTokProfileScreen(
 
 @Composable
 private fun FolderManagerCard(
+    modifier: Modifier = Modifier,
     folders: List<SelectedFolder>,
     playOrder: PlayOrder,
     onAddFolderClick: () -> Unit,
     onTogglePlayOrder: () -> Unit
 ) {
-    Surface(
-        modifier = Modifier
+    Column(
+        modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-        color = Color(0xFFF7F7F7),
-        shape = RoundedCornerShape(18.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, TikTokOutline.copy(alpha = 0.6f))
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+        Surface(
+            color = Color(0xFFF7F8FA),
+            shape = RoundedCornerShape(24.dp),
+            border = androidx.compose.foundation.BorderStroke(1.dp, TikTokOutline.copy(alpha = 0.55f))
         ) {
-            Text(
-                text = "Private videos",
-                color = Color.Black,
-                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
-            )
-            Text(
-                text = if (folders.isEmpty()) {
-                    "No folders selected yet. Add one or more folders and the app will scan videos into LocalTikTok."
+            Column(
+                modifier = Modifier.padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Text(
+                    text = "Selected folders",
+                    color = Color.Black,
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                )
+                if (folders.isEmpty()) {
+                    Text(
+                        text = "No folders added yet. Add a folder and the app will import its videos into LocalTikTok.",
+                        color = TikTokTextSecondary,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
                 } else {
-                    folders.joinToString(separator = "\n") { "\u2022 ${it.name}" }
-                },
-                color = TikTokTextSecondary,
-                style = MaterialTheme.typography.bodySmall,
-                maxLines = 5,
-                overflow = TextOverflow.Ellipsis
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Surface(
-                    modifier = Modifier.weight(1f).clickable(onClick = onAddFolderClick),
-                    color = Color.White,
-                    shape = RoundedCornerShape(12.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, TikTokOutline)
-                ) {
-                    Box(modifier = Modifier.padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
-                        Text(
-                            text = "Add folder",
-                            color = Color.Black,
-                            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
-                        )
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        folders.forEach { folder ->
+                            Surface(
+                                color = Color.White,
+                                shape = RoundedCornerShape(18.dp),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, TikTokOutline.copy(alpha = 0.5f))
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 14.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column {
+                                        Text(
+                                            text = folder.name,
+                                            color = Color.Black,
+                                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold)
+                                        )
+                                        Text(
+                                            text = "Imported into LocalTikTok",
+                                            color = TikTokTextSecondary,
+                                            style = MaterialTheme.typography.bodySmall
+                                        )
+                                    }
+                                    Icon(
+                                        imageVector = Icons.Outlined.Lock,
+                                        contentDescription = null,
+                                        tint = Color.Black.copy(alpha = 0.72f)
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
-                Surface(
-                    modifier = Modifier.weight(1f).clickable(onClick = onTogglePlayOrder),
-                    color = Color(0xFF111111),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Box(modifier = Modifier.padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
-                        Text(
-                            text = if (playOrder == PlayOrder.Sequential) "Sequential" else "Shuffle",
-                            color = Color.White,
-                            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
-                        )
-                    }
+            }
+        }
+
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Surface(
+                modifier = Modifier.weight(1f).clickable(onClick = onAddFolderClick),
+                color = Color.White,
+                shape = RoundedCornerShape(18.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, TikTokOutline.copy(alpha = 0.6f))
+            ) {
+                Box(modifier = Modifier.padding(vertical = 15.dp), contentAlignment = Alignment.Center) {
+                    Text(
+                        text = "Add folder",
+                        color = Color.Black,
+                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
+                    )
+                }
+            }
+            Surface(
+                modifier = Modifier.weight(1f).clickable(onClick = onTogglePlayOrder),
+                color = Color(0xFF111111),
+                shape = RoundedCornerShape(18.dp)
+            ) {
+                Box(modifier = Modifier.padding(vertical = 15.dp), contentAlignment = Alignment.Center) {
+                    Text(
+                        text = if (playOrder == PlayOrder.Sequential) "Sequential" else "Shuffle",
+                        color = Color.White,
+                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
+                    )
                 }
             }
         }
@@ -942,9 +996,9 @@ private fun InboxScreen(
     links: List<SharedLinkItem>,
     selectedTab: BottomTab,
     onTabSelected: (BottomTab) -> Unit,
-    onCreateClick: () -> Unit
+    onCreateClick: () -> Unit,
+    onPreviewLink: (String) -> Unit
 ) {
-    val context = LocalContext.current
     Box(modifier = Modifier.fillMaxSize().background(Color.White)) {
         Column(
             modifier = Modifier
@@ -959,7 +1013,7 @@ private fun InboxScreen(
                 style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold)
             )
             Text(
-                text = "Shared links from TikTok, YouTube, browsers, and other apps are saved here.",
+                text = "Saved links are cleaned up first, then previewed inside the app before you open them elsewhere.",
                 color = TikTokTextSecondary,
                 style = MaterialTheme.typography.bodyMedium
             )
@@ -979,30 +1033,57 @@ private fun InboxScreen(
                     }
                 } else {
                     links.forEach { link ->
+                        val cleanedUrl = remember(link.url) { cleanSharedUrl(link.url) }
+                        val title = remember(cleanedUrl) { linkDisplayTitle(cleanedUrl) }
                         Surface(
-                            modifier = Modifier.clickable {
-                                runCatching {
-                                    context.startActivity(
-                                        Intent(Intent.ACTION_VIEW, Uri.parse(link.url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                    )
-                                }
-                            },
                             color = Color(0xFFF7F7F7),
-                            shape = RoundedCornerShape(18.dp),
+                            shape = RoundedCornerShape(22.dp),
                             border = androidx.compose.foundation.BorderStroke(1.dp, TikTokOutline.copy(alpha = 0.6f))
                         ) {
-                            Column(modifier = Modifier.padding(16.dp)) {
+                            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                 Text(
-                                    text = link.url,
+                                    text = title,
                                     color = Color.Black,
-                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
+                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold)
                                 )
-                                Spacer(modifier = Modifier.height(6.dp))
                                 Text(
-                                    text = "Saved for later processing",
+                                    text = cleanedUrl,
                                     color = TikTokTextSecondary,
-                                    style = MaterialTheme.typography.bodySmall
+                                    style = MaterialTheme.typography.bodySmall,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
                                 )
+                                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Surface(
+                                        modifier = Modifier.weight(1f).clickable { onPreviewLink(cleanedUrl) },
+                                        color = Color(0xFF111111),
+                                        shape = RoundedCornerShape(14.dp)
+                                    ) {
+                                        Box(modifier = Modifier.padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
+                                            Text(
+                                                text = "Preview",
+                                                color = Color.White,
+                                                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
+                                            )
+                                        }
+                                    }
+                                    Surface(
+                                        modifier = Modifier.weight(1f).clickable {
+                                            onPreviewLink(cleanedUrl)
+                                        },
+                                        color = Color.White,
+                                        shape = RoundedCornerShape(14.dp),
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, TikTokOutline.copy(alpha = 0.6f))
+                                    ) {
+                                        Box(modifier = Modifier.padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
+                                            Text(
+                                                text = "Inspect",
+                                                color = Color.Black,
+                                                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -1017,6 +1098,74 @@ private fun InboxScreen(
             onCreateClick = onCreateClick,
             darkTheme = false
         )
+    }
+}
+
+@Composable
+private fun LinkPreviewSheet(url: String, onDismiss: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.52f))
+            .clickable(onClick = onDismiss),
+        contentAlignment = Alignment.BottomCenter
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxSize(0.88f)
+                .clickable(enabled = false) {},
+            color = Color.White,
+            shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
+        ) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 18.dp, vertical = 16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = linkDisplayTitle(url),
+                            color = Color.Black,
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                        )
+                        Text(
+                            text = url,
+                            color = TikTokTextSecondary,
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    Surface(
+                        color = Color(0xFF111111),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text(
+                            text = "Close",
+                            color = Color.White,
+                            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                            modifier = Modifier.clickable(onClick = onDismiss).padding(horizontal = 12.dp, vertical = 8.dp)
+                        )
+                    }
+                }
+                AndroidView(
+                    modifier = Modifier.fillMaxSize(),
+                    factory = { context ->
+                        WebView(context).apply {
+                            settings.javaScriptEnabled = true
+                            settings.domStorageEnabled = true
+                            webViewClient = WebViewClient()
+                            loadUrl(url)
+                        }
+                    },
+                    update = { it.loadUrl(url) }
+                )
+            }
+        }
     }
 }
 
@@ -1128,25 +1277,71 @@ private fun ProfileStat(value: String, label: String) {
 }
 
 @Composable
-private fun ProfileTabRow() {
-    Row(
-        modifier = Modifier.fillMaxWidth().border(width = 1.dp, color = TikTokOutline.copy(alpha = 0.45f)).padding(vertical = 10.dp),
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically
+private fun ProfileTabRow(
+    selectedSection: ProfileSection,
+    onSectionSelected: (ProfileSection) -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        color = Color(0xFFF6F7F9),
+        shape = RoundedCornerShape(18.dp)
     ) {
-        Icon(
-            imageVector = Icons.Outlined.GridOn,
-            contentDescription = "Posts",
-            tint = Color.Black,
-            modifier = Modifier.size(20.dp)
-        )
-        Spacer(modifier = Modifier.width(96.dp))
-        Icon(
-            imageVector = Icons.Outlined.Lock,
-            contentDescription = "Private likes",
-            tint = TikTokTextSecondary.copy(alpha = 0.6f),
-            modifier = Modifier.size(18.dp)
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            ProfileSectionChip(
+                modifier = Modifier.weight(1f),
+                label = "Posts",
+                icon = Icons.Outlined.GridOn,
+                selected = selectedSection == ProfileSection.Posts,
+                onClick = { onSectionSelected(ProfileSection.Posts) }
+            )
+            ProfileSectionChip(
+                modifier = Modifier.weight(1f),
+                label = "Folders",
+                icon = Icons.Outlined.Lock,
+                selected = selectedSection == ProfileSection.Folders,
+                onClick = { onSectionSelected(ProfileSection.Folders) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun ProfileSectionChip(
+    modifier: Modifier = Modifier,
+    label: String,
+    icon: ImageVector,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    Surface(
+        modifier = modifier.clickable(onClick = onClick),
+        color = if (selected) Color.White else Color.Transparent,
+        shape = RoundedCornerShape(14.dp),
+        shadowElevation = if (selected) 2.dp else 0.dp
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                tint = if (selected) Color.Black else TikTokTextSecondary,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = label,
+                color = if (selected) Color.Black else TikTokTextSecondary,
+                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
+            )
+        }
     }
 }
 
@@ -1154,15 +1349,15 @@ private fun ProfileTabRow() {
 private fun ProfileGrid(modifier: Modifier = Modifier, postedVideos: List<VideoPostUiModel>) {
     val tiles = remember(postedVideos) {
         if (postedVideos.isEmpty()) listOf(ProfileGridItem.CreateCard)
-        else postedVideos.map { ProfileGridItem.VideoTile(it) } + ProfileGridItem.CreateCard
+        else postedVideos.map { ProfileGridItem.VideoTile(it) }
     }
 
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
         LazyVerticalGrid(
             columns = GridCells.Fixed(3),
-            modifier = Modifier.fillMaxSize().padding(bottom = 68.dp),
-            horizontalArrangement = Arrangement.spacedBy(1.dp),
-            verticalArrangement = Arrangement.spacedBy(1.dp)
+            modifier = Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 68.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             items(tiles) { tile ->
                 when (tile) {
@@ -1176,9 +1371,13 @@ private fun ProfileGrid(modifier: Modifier = Modifier, postedVideos: List<VideoP
 
 @Composable
 private fun ProfileVideoTile(post: VideoPostUiModel) {
-    val thumbnail = rememberVideoThumbnail(post.uri)
+    val thumbnail = rememberVideoThumbnail(post.localPath)
     Box(
-        modifier = Modifier.fillMaxWidth().height(124.dp).background(Color.Black),
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(156.dp)
+            .clip(RoundedCornerShape(20.dp))
+            .background(Color.Black),
         contentAlignment = Alignment.BottomStart
     ) {
         if (thumbnail != null) {
@@ -1195,15 +1394,21 @@ private fun ProfileVideoTile(post: VideoPostUiModel) {
                 )
             )
         }
-        Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.12f)))
-        Text(
-            text = post.caption,
-            color = Color.White,
-            style = MaterialTheme.typography.labelSmall,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(8.dp)
-        )
+        Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.10f)))
+        Surface(
+            modifier = Modifier.padding(10.dp),
+            color = Color.Black.copy(alpha = 0.46f),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Text(
+                text = post.caption,
+                color = Color.White,
+                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
+            )
+        }
     }
 }
 
@@ -1457,20 +1662,23 @@ private fun CaptionEditSheet(
 }
 
 @Composable
-private fun rememberVideoThumbnail(uri: Uri?): androidx.compose.ui.graphics.ImageBitmap? {
-    val context = LocalContext.current
-    val thumbnail by produceState<Bitmap?>(initialValue = null, uri) {
-        value = if (uri == null) {
+private fun rememberVideoThumbnail(localPath: String?): androidx.compose.ui.graphics.ImageBitmap? {
+    val thumbnail by produceState<Bitmap?>(initialValue = null, localPath) {
+        value = if (localPath.isNullOrBlank()) {
             null
         } else {
             withContext(Dispatchers.IO) {
                 runCatching {
                     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-                        context.contentResolver.loadThumbnail(uri, android.util.Size(512, 512), null)
+                        ThumbnailUtils.createVideoThumbnail(
+                            File(localPath),
+                            android.util.Size(512, 512),
+                            null
+                        )
                     } else {
                         val retriever = MediaMetadataRetriever()
                         try {
-                            retriever.setDataSource(context, uri)
+                            retriever.setDataSource(localPath)
                             retriever.getFrameAtTime(0)
                         } finally {
                             retriever.release()
@@ -1497,6 +1705,7 @@ private fun sampleFeedPosts(): List<VideoPostUiModel> = listOf(
     VideoPostUiModel(
         id = "sample-stage",
         uri = null,
+        localPath = null,
         username = "@craig_love",
         caption = "The most satisfying Job #fyp #satisfying #roadmarking",
         song = "Roddy Roundicch - The Rou",
@@ -1510,6 +1719,7 @@ private fun sampleFeedPosts(): List<VideoPostUiModel> = listOf(
 )
 
 private enum class BottomTab { Home, Inbox, Profile }
+private enum class ProfileSection { Posts, Folders }
 
 private sealed interface ProfileGridItem {
     data class VideoTile(val post: VideoPostUiModel) : ProfileGridItem
@@ -1519,6 +1729,7 @@ private sealed interface ProfileGridItem {
 private data class VideoPostUiModel(
     val id: String,
     val uri: Uri?,
+    val localPath: String?,
     val username: String,
     val caption: String,
     val song: String,
@@ -1534,6 +1745,7 @@ private fun StoredVideo.toVideoPostUiModel(): VideoPostUiModel {
     return VideoPostUiModel(
         id = id,
         uri = uri,
+        localPath = localPath,
         username = "",
         caption = caption,
         song = displayName,
@@ -1545,6 +1757,23 @@ private fun StoredVideo.toVideoPostUiModel(): VideoPostUiModel {
         ),
         isEditable = true
     )
+}
+
+private fun cleanSharedUrl(raw: String): String {
+    val directUrl = Regex("""https?://\S+""").find(raw)?.value ?: raw.trim()
+    return Uri.parse(directUrl).buildUpon().clearQuery().fragment(null).build().toString()
+}
+
+private fun linkDisplayTitle(url: String): String {
+    val uri = Uri.parse(url)
+    val host = uri.host?.removePrefix("www.") ?: "Shared link"
+    val path = uri.path.orEmpty()
+    return when {
+        "tiktok" in host && path.contains("/video/") -> "TikTok video"
+        "youtube" in host || host == "youtu.be" -> "YouTube link"
+        "instagram" in host -> "Instagram link"
+        else -> host.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+    }
 }
 
 @Preview(showBackground = true, backgroundColor = 0xFF000000)
