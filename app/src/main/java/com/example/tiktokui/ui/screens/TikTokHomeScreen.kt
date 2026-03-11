@@ -152,6 +152,8 @@ fun TikTokHomeScreen(
     var inboxInspectUrl by rememberSaveable { mutableStateOf<String?>(null) }
     var allModeVideos by remember { mutableStateOf<List<StoredVideo>>(emptyList()) }
     var favoriteMoveProgress by remember { mutableStateOf<FavoriteMoveProgress?>(null) }
+    var pendingFavoritePostId by rememberSaveable { mutableStateOf<String?>(null) }
+    var profileLaunchPostId by rememberSaveable { mutableStateOf<String?>(null) }
 
     val loadAllVideos: suspend () -> Unit = {
         val scannedVideos = withContext(Dispatchers.IO) {
@@ -260,6 +262,55 @@ fun TikTokHomeScreen(
         orderedPosts + samplePosts
     }
     val pagerState = rememberPagerState(initialPage = 0) { homeFeedPosts.size }
+    val currentFeedPostId = homeFeedPosts.getOrNull(pagerState.currentPage)?.id
+
+    fun moveVideoToFavorites(postId: String) {
+        val existingIndex = appState.videos.indexOfFirst { it.id == postId }
+        val sourceVideo = when {
+            existingIndex >= 0 -> appState.videos[existingIndex]
+            else -> visibleVideos.firstOrNull { it.id == postId }
+        }
+
+        if (sourceVideo == null) {
+            Toast.makeText(context, "Couldn't find this video", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        favoriteMoveProgress = FavoriteMoveProgress(
+            videoName = sourceVideo.displayName,
+            progress = 0
+        )
+        scope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    store.favoriteVideo(sourceVideo) { progress ->
+                        scope.launch {
+                            favoriteMoveProgress = favoriteMoveProgress?.copy(progress = progress)
+                        }
+                    }
+                }
+            }.onSuccess { favoriteResult ->
+                val updatedVideos = appState.videos.toMutableList()
+                if (existingIndex >= 0) {
+                    updatedVideos[existingIndex] = favoriteResult.video
+                } else {
+                    updatedVideos.add(0, favoriteResult.video)
+                }
+                appState = appState.copy(videos = updatedVideos.distinctBy { it.id })
+                allModeVideos = allModeVideos.filterNot { it.id == postId }
+                favoriteMoveProgress = favoriteMoveProgress?.copy(progress = 100)
+                val message = if (favoriteResult.alreadyFavorited) {
+                    "Already in favorites"
+                } else {
+                    "Moved to TikTokUi/Favorite Vidios"
+                }
+                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+            }.onFailure {
+                favoriteMoveProgress = null
+                Toast.makeText(context, "Couldn't add this video to favorites", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
 
     LaunchedEffect(homeFeedPosts.size) {
         if (selectedTab == BottomTab.Home && appState.videos.isNotEmpty() && pagerState.currentPage != 0) {
@@ -275,6 +326,27 @@ fun TikTokHomeScreen(
         }
     }
 
+    LaunchedEffect(profileLaunchPostId, homeFeedPosts, selectedTab) {
+        val targetId = profileLaunchPostId ?: return@LaunchedEffect
+        if (selectedTab != BottomTab.Home) return@LaunchedEffect
+        val targetIndex = homeFeedPosts.indexOfFirst { it.id == targetId }
+        if (targetIndex >= 0) {
+            pagerState.scrollToPage(targetIndex)
+            pausedVideoId = null
+            profileLaunchPostId = null
+        }
+    }
+
+    LaunchedEffect(pendingFavoritePostId, currentFeedPostId, pausedVideoId, selectedTab) {
+        val queuedId = pendingFavoritePostId ?: return@LaunchedEffect
+        if (selectedTab != BottomTab.Home) return@LaunchedEffect
+        val isStillActive = queuedId == currentFeedPostId && pausedVideoId == null
+        if (!isStillActive) {
+            pendingFavoritePostId = null
+            moveVideoToFavorites(queuedId)
+        }
+    }
+
     Box(modifier = modifier.fillMaxSize()) {
         when (selectedTab) {
             BottomTab.Home -> HomeFeedPager(
@@ -286,39 +358,11 @@ fun TikTokHomeScreen(
                 },
                 onCommentsClick = { showComments = true },
                 onFavoriteClick = { postId ->
-                    val index = appState.videos.indexOfFirst { it.id == postId }
-                    if (index < 0) {
-                        Toast.makeText(context, "Only your local videos can be added to favorites", Toast.LENGTH_SHORT).show()
+                    if (postId == currentFeedPostId && pausedVideoId == null) {
+                        pendingFavoritePostId = postId
+                        Toast.makeText(context, "Favorite queued. Scroll to move it.", Toast.LENGTH_SHORT).show()
                     } else {
-                        favoriteMoveProgress = FavoriteMoveProgress(
-                            videoName = appState.videos[index].displayName,
-                            progress = 0
-                        )
-                        scope.launch {
-                            runCatching {
-                                withContext(Dispatchers.IO) {
-                                    store.favoriteVideo(appState.videos[index]) { progress ->
-                                        scope.launch {
-                                            favoriteMoveProgress = favoriteMoveProgress?.copy(progress = progress)
-                                        }
-                                    }
-                                }
-                            }.onSuccess { favoriteResult ->
-                                val updatedVideos = appState.videos.toMutableList()
-                                updatedVideos[index] = favoriteResult.video
-                                appState = appState.copy(videos = updatedVideos)
-                                favoriteMoveProgress = favoriteMoveProgress?.copy(progress = 100)
-                                val message = if (favoriteResult.alreadyFavorited) {
-                                    "Already in Local TikTok Favorite"
-                                } else {
-                                    "Moved to TikTokUi/Favorite Vidios"
-                                }
-                                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
-                            }.onFailure {
-                                favoriteMoveProgress = null
-                                Toast.makeText(context, "Couldn't add this video to favorites", Toast.LENGTH_SHORT).show()
-                            }
-                        }
+                        moveVideoToFavorites(postId)
                     }
                 },
                 expandedCaptionPostId = expandedCaptionPostId,
@@ -356,6 +400,10 @@ fun TikTokHomeScreen(
                 videoSourceMode = appState.videoSourceMode,
                 selectedSection = profileSection,
                 selectedTab = selectedTab,
+                onOpenVideo = { postId ->
+                    selectedTab = BottomTab.Home
+                    profileLaunchPostId = postId
+                },
                 onTabSelected = { tapped ->
                     selectedTab = if (tapped == BottomTab.Profile) BottomTab.Home else tapped
                 },
@@ -763,13 +811,17 @@ private fun CenteredCaptionOverlay(
     onDismiss: () -> Unit,
     onCaptionChange: (String) -> Unit
 ) {
+    var draftCaption by rememberSaveable(post.id, post.caption) { mutableStateOf(post.caption) }
     val scrollState = rememberScrollState()
     val panelAlpha by animateFloatAsState(if (post.isEditable) 0.96f else 0.92f, label = "captionPanelAlpha")
     Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .clickable(onClick = onDismiss)
+        modifier = Modifier.fillMaxSize()
     ) {
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .clickable(onClick = onDismiss)
+        )
         AnimatedVisibility(
             visible = true,
             enter = fadeIn() + slideInHorizontally(initialOffsetX = { -it / 3 }),
@@ -800,8 +852,11 @@ private fun CenteredCaptionOverlay(
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold)
                         )
                         OutlinedTextField(
-                            value = post.caption,
-                            onValueChange = onCaptionChange,
+                            value = draftCaption,
+                            onValueChange = {
+                                draftCaption = it
+                                onCaptionChange(it)
+                            },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .background(Color.Transparent),
@@ -1125,6 +1180,7 @@ private fun TikTokProfileScreen(
     videoSourceMode: VideoSourceMode,
     selectedSection: ProfileSection,
     selectedTab: BottomTab,
+    onOpenVideo: (String) -> Unit,
     onTabSelected: (BottomTab) -> Unit,
     onCreateClick: () -> Unit,
     onAddFolderClick: () -> Unit,
@@ -1137,18 +1193,23 @@ private fun TikTokProfileScreen(
         Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
             ProfileTopBar()
             HorizontalDivider(color = TikTokOutline)
-            ProfileHeader(totalPosts = postedVideos.size)
+            ProfileHeader(totalPosts = postedVideos.size + favoriteVideos.size)
             ProfileTabRow(
                 selectedSection = selectedSection,
                 onSectionSelected = onSectionSelected
             )
             when (selectedSection) {
-                ProfileSection.Posts -> ProfileGrid(modifier = Modifier.weight(1f), postedVideos = postedVideos)
+                ProfileSection.Posts -> ProfileGrid(
+                    modifier = Modifier.weight(1f),
+                    postedVideos = postedVideos,
+                    onOpenVideo = onOpenVideo
+                )
                 ProfileSection.Favorites -> ProfileGrid(
                     modifier = Modifier.weight(1f),
                     postedVideos = favoriteVideos,
                     emptyTitle = "No favorite videos yet",
-                    emptySubtitle = "Tap the favorite icon on any video to move it into your favorites folder."
+                    emptySubtitle = "Tap the favorite icon on any video to move it into your favorites folder.",
+                    onOpenVideo = onOpenVideo
                 )
                 ProfileSection.Folders -> FolderManagerCard(
                     modifier = Modifier.weight(1f),
@@ -1669,8 +1730,8 @@ private fun ProfileHeader(totalPosts: Int) {
         )
         Spacer(modifier = Modifier.height(16.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(28.dp), verticalAlignment = Alignment.CenterVertically) {
-            ProfileStat(value = "14", label = "Following")
-            ProfileStat(value = "38", label = "Followers")
+            ProfileStat(value = totalPosts.toString(), label = "Following")
+            ProfileStat(value = totalPosts.toString(), label = "Followers")
             ProfileStat(value = totalPosts.toString(), label = "Posts")
         }
         Spacer(modifier = Modifier.height(18.dp))
@@ -1798,7 +1859,8 @@ private fun ProfileGrid(
     modifier: Modifier = Modifier,
     postedVideos: List<VideoPostUiModel>,
     emptyTitle: String = "No posts yet",
-    emptySubtitle: String = "Add a video to build your clean profile grid."
+    emptySubtitle: String = "Add a video to build your clean profile grid.",
+    onOpenVideo: (String) -> Unit
 ) {
     if (postedVideos.isEmpty()) {
         Box(
@@ -1819,21 +1881,22 @@ private fun ProfileGrid(
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             items(postedVideos) { post ->
-                ProfileVideoTile(post)
+                ProfileVideoTile(post = post, onOpenVideo = onOpenVideo)
             }
         }
     }
 }
 
 @Composable
-private fun ProfileVideoTile(post: VideoPostUiModel) {
+private fun ProfileVideoTile(post: VideoPostUiModel, onOpenVideo: (String) -> Unit) {
     val thumbnail = rememberVideoThumbnail(post.localPath)
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .aspectRatio(0.78f)
             .clip(RoundedCornerShape(4.dp))
-            .background(Color.Black),
+            .background(Color.Black)
+            .clickable { onOpenVideo(post.id) },
         contentAlignment = Alignment.BottomStart
     ) {
         if (thumbnail != null) {
