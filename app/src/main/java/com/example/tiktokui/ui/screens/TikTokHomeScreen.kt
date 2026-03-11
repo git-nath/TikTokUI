@@ -357,6 +357,11 @@ fun TikTokHomeScreen(
                     pausedVideoId = if (pausedVideoId == postId) null else postId
                 },
                 onCommentsClick = { showComments = true },
+                onShareClick = { postId ->
+                    val sourceVideo = appState.videos.firstOrNull { it.id == postId }
+                        ?: visibleVideos.firstOrNull { it.id == postId }
+                    openVideoLocation(context, sourceVideo)
+                },
                 onFavoriteClick = { postId ->
                     if (postId == currentFeedPostId && pausedVideoId == null) {
                         pendingFavoritePostId = postId
@@ -516,6 +521,7 @@ private fun HomeFeedPager(
     pausedVideoId: String?,
     onTogglePlayback: (String) -> Unit,
     onCommentsClick: () -> Unit,
+    onShareClick: (String) -> Unit,
     onFavoriteClick: (String) -> Unit,
     expandedCaptionPostId: String?,
     onToggleCaption: (String) -> Unit,
@@ -534,6 +540,7 @@ private fun HomeFeedPager(
                 isPaused = pausedVideoId == post.id,
                 onTogglePlayback = { onTogglePlayback(post.id) },
                 onCommentsClick = onCommentsClick,
+                onShareClick = { onShareClick(post.id) },
                 onFavoriteClick = { onFavoriteClick(post.id) },
                 isCaptionExpanded = expandedCaptionPostId == post.id,
                 onToggleCaption = { onToggleCaption(post.id) },
@@ -563,6 +570,7 @@ private fun HomeFeedPage(
     isPaused: Boolean,
     onTogglePlayback: () -> Unit,
     onCommentsClick: () -> Unit,
+    onShareClick: () -> Unit,
     onFavoriteClick: () -> Unit,
     isCaptionExpanded: Boolean,
     onToggleCaption: () -> Unit,
@@ -595,6 +603,7 @@ private fun HomeFeedPage(
             post = post,
             showTabs = post.uri == null,
             onCommentsClick = onCommentsClick,
+            onShareClick = onShareClick,
             onFavoriteClick = onFavoriteClick,
             isCaptionExpanded = isCaptionExpanded,
             onToggleCaption = onToggleCaption,
@@ -631,6 +640,7 @@ private fun FeedOverlay(
     post: VideoPostUiModel,
     showTabs: Boolean,
     onCommentsClick: () -> Unit,
+    onShareClick: () -> Unit,
     onFavoriteClick: () -> Unit,
     isCaptionExpanded: Boolean,
     onToggleCaption: () -> Unit,
@@ -660,6 +670,7 @@ private fun FeedOverlay(
                 .padding(bottom = 92.dp, end = 12.dp),
             post = post,
             onCommentsClick = onCommentsClick,
+            onShareClick = onShareClick,
             onFavoriteClick = onFavoriteClick
         )
     }
@@ -905,6 +916,7 @@ private fun RightActionRail(
     modifier: Modifier = Modifier,
     post: VideoPostUiModel,
     onCommentsClick: () -> Unit,
+    onShareClick: () -> Unit,
     onFavoriteClick: () -> Unit
 ) {
     Column(
@@ -959,7 +971,8 @@ private fun RightActionRail(
                     modifier = Modifier.size(31.dp)
                 )
             },
-            count = post.shares
+            count = post.shares,
+            onClick = onShareClick
         )
 
         FavoriteDisc(
@@ -2220,6 +2233,54 @@ private fun persistReadPermission(context: Context, uri: Uri): Uri {
         )
     }
     return uri
+}
+
+private fun openVideoLocation(context: Context, video: StoredVideo?) {
+    if (video == null) {
+        Toast.makeText(context, "Couldn't find this video location", Toast.LENGTH_SHORT).show()
+        return
+    }
+
+    val folderUri = video.sourceFolderUri
+        ?.takeIf { it.isNotBlank() && it != "__all_videos__" }
+        ?.let(Uri::parse)
+    val videoUri = when {
+        !video.sourceUri.isNullOrBlank() -> Uri.parse(video.sourceUri)
+        video.localPath.startsWith("content://") || video.localPath.startsWith("file://") -> Uri.parse(video.localPath)
+        else -> null
+    }
+
+    val intents = buildList {
+        folderUri?.let { uri ->
+            add(
+                Intent(Intent.ACTION_VIEW).apply {
+                    setData(uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+            )
+        }
+        videoUri?.let { uri ->
+            add(
+                Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(uri, "video/*")
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+            )
+        }
+    }
+
+    val opened = intents.any { intent ->
+        runCatching {
+            context.startActivity(intent)
+            true
+        }.getOrDefault(false)
+    }
+
+    if (!opened) {
+        Toast.makeText(context, "No app found to open this video location", Toast.LENGTH_SHORT).show()
+    }
 }
 
 private fun sampleFeedPosts(): List<VideoPostUiModel> = listOf(
