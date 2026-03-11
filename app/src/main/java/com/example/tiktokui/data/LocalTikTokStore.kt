@@ -8,6 +8,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
+import java.io.IOException
 
 data class AppPersistedState(
     val videos: List<StoredVideo> = emptyList(),
@@ -50,6 +51,8 @@ enum class VideoSourceMode {
 
 class LocalTikTokStore(private val context: Context) {
     private val prefs = context.getSharedPreferences("local_tiktok_store", Context.MODE_PRIVATE)
+    private val libraryDirName = "LocalTikTok"
+    private val favoritesDirName = "LocalTikTok Favorite"
 
     fun load(): AppPersistedState {
         val raw = prefs.getString("app_state", null) ?: return AppPersistedState()
@@ -104,20 +107,44 @@ class LocalTikTokStore(private val context: Context) {
     }
 
     fun copyIntoLibrary(source: Uri, preferredName: String): String {
-        val targetDir = File(context.filesDir, "LocalTikTok").apply { mkdirs() }
+        val targetDir = File(context.filesDir, libraryDirName).apply { mkdirs() }
         val safeName = preferredName.ifBlank { "video_${System.currentTimeMillis()}.mp4" }
-        val extension = safeName.substringAfterLast('.', "mp4")
-        val baseName = safeName.substringBeforeLast('.')
-        var target = File(targetDir, "$baseName.$extension")
-        var counter = 1
-        while (target.exists()) {
-            target = File(targetDir, "${baseName}_$counter.$extension")
-            counter++
-        }
+        val target = createUniqueTargetFile(targetDir, safeName)
         context.contentResolver.openInputStream(source)?.use { input ->
             FileOutputStream(target).use { output -> input.copyTo(output) }
         }
         return target.absolutePath
+    }
+
+    fun favoriteVideo(video: StoredVideo): StoredVideo {
+        val targetDir = File(context.filesDir, favoritesDirName).apply { mkdirs() }
+        val safeName = video.displayName.ifBlank { "favorite_${System.currentTimeMillis()}.mp4" }
+        val target = createUniqueTargetFile(targetDir, safeName)
+        val sourceUri = video.sourceUri?.takeIf { it.isNotBlank() }?.let(Uri::parse)
+        val currentFile = video.localPath
+            .takeIf { it.isNotBlank() && !it.startsWith("content://") && !it.startsWith("file://") }
+            ?.let(::File)
+
+        when {
+            currentFile != null && currentFile.exists() -> {
+                if (!currentFile.renameTo(target)) {
+                    currentFile.inputStream().use { input ->
+                        FileOutputStream(target).use { output -> input.copyTo(output) }
+                    }
+                    if (!currentFile.delete()) {
+                        throw IOException("Unable to delete original file after favoriting")
+                    }
+                }
+            }
+            sourceUri != null -> {
+                context.contentResolver.openInputStream(sourceUri)?.use { input ->
+                    FileOutputStream(target).use { output -> input.copyTo(output) }
+                } ?: throw IOException("Unable to open source video for favoriting")
+            }
+            else -> throw IOException("Video source is unavailable")
+        }
+
+        return video.copy(localPath = target.absolutePath)
     }
 
     fun takePersistablePermission(uri: Uri) {
@@ -197,6 +224,19 @@ class LocalTikTokStore(private val context: Context) {
                 }
             }
         }
+    }
+
+    private fun createUniqueTargetFile(targetDir: File, preferredName: String): File {
+        val safeName = preferredName.ifBlank { "video_${System.currentTimeMillis()}.mp4" }
+        val extension = safeName.substringAfterLast('.', "mp4")
+        val baseName = safeName.substringBeforeLast('.', safeName)
+        var target = File(targetDir, "$baseName.$extension")
+        var counter = 1
+        while (target.exists()) {
+            target = File(targetDir, "${baseName}_$counter.$extension")
+            counter++
+        }
+        return target
     }
 }
 

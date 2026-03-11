@@ -65,9 +65,9 @@ import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.TurnedInNot
+import androidx.compose.material.icons.rounded.Bookmark
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Favorite
-import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -273,6 +273,27 @@ fun TikTokHomeScreen(
                     pausedVideoId = if (pausedVideoId == postId) null else postId
                 },
                 onCommentsClick = { showComments = true },
+                onFavoriteClick = { postId ->
+                    val index = appState.videos.indexOfFirst { it.id == postId }
+                    if (index < 0) {
+                        Toast.makeText(context, "Only your local videos can be added to favorites", Toast.LENGTH_SHORT).show()
+                    } else {
+                        scope.launch {
+                            runCatching {
+                                withContext(Dispatchers.IO) {
+                                    store.favoriteVideo(appState.videos[index])
+                                }
+                            }.onSuccess { favoritedVideo ->
+                                val updatedVideos = appState.videos.toMutableList()
+                                updatedVideos[index] = favoritedVideo
+                                appState = appState.copy(videos = updatedVideos)
+                                Toast.makeText(context, "Moved to Local TikTok Favorite", Toast.LENGTH_SHORT).show()
+                            }.onFailure {
+                                Toast.makeText(context, "Couldn't add this video to favorites", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
+                },
                 expandedCaptionPostId = expandedCaptionPostId,
                 onToggleCaption = { postId ->
                     expandedCaptionPostId = if (expandedCaptionPostId == postId) null else postId
@@ -411,6 +432,7 @@ private fun HomeFeedPager(
     pausedVideoId: String?,
     onTogglePlayback: (String) -> Unit,
     onCommentsClick: () -> Unit,
+    onFavoriteClick: (String) -> Unit,
     expandedCaptionPostId: String?,
     onToggleCaption: (String) -> Unit,
     onCaptionChange: (String, String) -> Unit,
@@ -428,6 +450,7 @@ private fun HomeFeedPager(
                 isPaused = pausedVideoId == post.id,
                 onTogglePlayback = { onTogglePlayback(post.id) },
                 onCommentsClick = onCommentsClick,
+                onFavoriteClick = { onFavoriteClick(post.id) },
                 isCaptionExpanded = expandedCaptionPostId == post.id,
                 onToggleCaption = { onToggleCaption(post.id) },
                 onCaptionChange = { updatedCaption -> onCaptionChange(post.id, updatedCaption) }
@@ -456,6 +479,7 @@ private fun HomeFeedPage(
     isPaused: Boolean,
     onTogglePlayback: () -> Unit,
     onCommentsClick: () -> Unit,
+    onFavoriteClick: () -> Unit,
     isCaptionExpanded: Boolean,
     onToggleCaption: () -> Unit,
     onCaptionChange: (String) -> Unit
@@ -487,6 +511,7 @@ private fun HomeFeedPage(
             post = post,
             showTabs = post.uri == null,
             onCommentsClick = onCommentsClick,
+            onFavoriteClick = onFavoriteClick,
             isCaptionExpanded = isCaptionExpanded,
             onToggleCaption = onToggleCaption,
             onCaptionChange = onCaptionChange
@@ -522,6 +547,7 @@ private fun FeedOverlay(
     post: VideoPostUiModel,
     showTabs: Boolean,
     onCommentsClick: () -> Unit,
+    onFavoriteClick: () -> Unit,
     isCaptionExpanded: Boolean,
     onToggleCaption: () -> Unit,
     onCaptionChange: (String) -> Unit
@@ -549,7 +575,8 @@ private fun FeedOverlay(
                 .navigationBarsPadding()
                 .padding(bottom = 92.dp, end = 12.dp),
             post = post,
-            onCommentsClick = onCommentsClick
+            onCommentsClick = onCommentsClick,
+            onFavoriteClick = onFavoriteClick
         )
     }
 }
@@ -767,7 +794,8 @@ private fun CenteredCaptionOverlay(
 private fun RightActionRail(
     modifier: Modifier = Modifier,
     post: VideoPostUiModel,
-    onCommentsClick: () -> Unit
+    onCommentsClick: () -> Unit,
+    onFavoriteClick: () -> Unit
 ) {
     Column(
         modifier = modifier,
@@ -824,7 +852,10 @@ private fun RightActionRail(
             count = post.shares
         )
 
-        MusicDisc()
+        FavoriteDisc(
+            enabled = post.isEditable,
+            onClick = onFavoriteClick
+        )
     }
 }
 
@@ -857,16 +888,33 @@ private fun AvatarDisc(brush: Brush) {
 }
 
 @Composable
-private fun MusicDisc() {
+private fun FavoriteDisc(enabled: Boolean, onClick: () -> Unit) {
     Box(
-        modifier = Modifier.size(44.dp).clip(CircleShape).background(
-            Brush.radialGradient(colors = listOf(Color(0xFF4B4B4B), Color(0xFF1A1A1A), Color.Black))
-        ),
+        modifier = Modifier
+            .size(48.dp)
+            .clip(CircleShape)
+            .background(
+                Brush.radialGradient(
+                    colors = listOf(Color(0xFF4A4A4A), Color(0xFF1A1A1A), Color.Black)
+                )
+            )
+            .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier),
         contentAlignment = Alignment.Center
     ) {
         Box(
-            modifier = Modifier.size(14.dp).clip(CircleShape).background(Color(0xFFF5C542))
-        )
+            modifier = Modifier
+                .size(18.dp)
+                .clip(CircleShape)
+                .background(Color(0xFFF5C542)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.Bookmark,
+                contentDescription = "Add to favorites",
+                tint = Color.Black,
+                modifier = Modifier.size(13.dp)
+            )
+        }
     }
 }
 
