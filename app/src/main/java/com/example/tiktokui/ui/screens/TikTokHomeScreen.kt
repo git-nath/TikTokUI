@@ -168,15 +168,18 @@ fun TikTokHomeScreen(
     var profileLaunchPostId by rememberSaveable { mutableStateOf<String?>(null) }
 
     val loadAllVideos: suspend () -> Unit = {
+        val savedVideosBySource = appState.videos.associateBy { it.sourceUri ?: it.localPath }
         val scannedVideos = withContext(Dispatchers.IO) {
             store.scanAllDeviceVideos().map { source ->
+                val savedVideo = savedVideosBySource[source.uri.toString()]
                 StoredVideo(
-                    id = "all_${source.uri}",
+                    id = savedVideo?.id ?: "all_${source.uri}",
                     localPath = source.uri.toString(),
                     sourceUri = source.uri.toString(),
                     sourceFolderUri = "__all_videos__",
                     displayName = source.displayName,
-                    caption = ""
+                    caption = savedVideo?.caption.orEmpty(),
+                    comments = savedVideo?.comments ?: emptyList()
                 )
             }
         }
@@ -277,11 +280,51 @@ fun TikTokHomeScreen(
     val pagerState = rememberPagerState(initialPage = 0) { homeFeedPosts.size }
     val currentFeedPostId = homeFeedPosts.getOrNull(pagerState.currentPage)?.id
 
+    fun resolveStoredVideo(postId: String): StoredVideo? {
+        return appState.videos.firstOrNull { it.id == postId }
+            ?: visibleVideos.firstOrNull { it.id == postId }
+            ?: allModeVideos.firstOrNull { it.id == postId }
+    }
+
+    fun persistCaptionNote(postId: String, note: String) {
+        val sourceVideo = resolveStoredVideo(postId) ?: return
+        val normalizedNote = note.trim()
+        val existingIndex = appState.videos.indexOfFirst { it.id == postId }
+        val updatedVideo = sourceVideo.copy(caption = normalizedNote)
+        val updatedVideos = appState.videos.toMutableList()
+        if (existingIndex >= 0) {
+            updatedVideos[existingIndex] = updatedVideo
+        } else {
+            updatedVideos.add(0, updatedVideo)
+        }
+        appState = appState.copy(videos = updatedVideos.distinctBy { it.id })
+        allModeVideos = allModeVideos.map { video ->
+            if (video.id == postId) video.copy(caption = normalizedNote) else video
+        }
+    }
+
+    fun openCaptionEditor(postId: String) {
+        val sourceVideo = resolveStoredVideo(postId)
+        editingPostId = postId
+        editingCaptionText = sourceVideo?.normalizedCaption().orEmpty()
+        expandedCaptionPostId = postId
+    }
+
+    fun closeCaptionEditor(save: Boolean) {
+        val targetPostId = editingPostId ?: expandedCaptionPostId
+        if (save && targetPostId != null) {
+            persistCaptionNote(targetPostId, editingCaptionText)
+        }
+        editingPostId = null
+        editingCaptionText = ""
+        expandedCaptionPostId = null
+    }
+
     fun moveVideoToFavorites(postId: String) {
         val existingIndex = appState.videos.indexOfFirst { it.id == postId }
         val sourceVideo = when {
             existingIndex >= 0 -> appState.videos[existingIndex]
-            else -> visibleVideos.firstOrNull { it.id == postId }
+            else -> resolveStoredVideo(postId)
         }
 
         if (sourceVideo == null) {
@@ -335,7 +378,11 @@ fun TikTokHomeScreen(
         if (selectedTab == BottomTab.Home) {
             pausedVideoId = null
             showComments = false
-            expandedCaptionPostId = null
+            if (expandedCaptionPostId != null && expandedCaptionPostId != currentFeedPostId) {
+                closeCaptionEditor(save = true)
+            }
+        } else if (expandedCaptionPostId != null) {
+            closeCaptionEditor(save = true)
         }
     }
 
@@ -385,16 +432,18 @@ fun TikTokHomeScreen(
                 },
                 expandedCaptionPostId = expandedCaptionPostId,
                 onToggleCaption = { postId ->
-                    expandedCaptionPostId = if (expandedCaptionPostId == postId) null else postId
-                },
-                onCaptionChange = { postId, updatedCaption ->
-                    val index = appState.videos.indexOfFirst { it.id == postId }
-                    if (index >= 0) {
-                        val updatedVideos = appState.videos.toMutableList()
-                        updatedVideos[index] = updatedVideos[index].copy(caption = updatedCaption)
-                        appState = appState.copy(videos = updatedVideos)
+                    if (expandedCaptionPostId == postId) {
+                        closeCaptionEditor(save = true)
+                    } else {
+                        openCaptionEditor(postId)
                     }
                 },
+                onCaptionChange = { postId, updatedCaption ->
+                    if (editingPostId == postId) {
+                        editingCaptionText = updatedCaption
+                    }
+                },
+                activeCaptionDraft = if (editingPostId == expandedCaptionPostId) editingCaptionText else null,
                 selectedTab = selectedTab,
                 feedCounter = "${pagerState.currentPage + 1}/${homeFeedPosts.size}",
                 onTabSelected = { tapped ->
@@ -539,6 +588,7 @@ private fun HomeFeedPager(
     expandedCaptionPostId: String?,
     onToggleCaption: (String) -> Unit,
     onCaptionChange: (String, String) -> Unit,
+    activeCaptionDraft: String?,
     feedCounter: String,
     selectedTab: BottomTab,
     onTabSelected: (BottomTab) -> Unit,
@@ -557,7 +607,8 @@ private fun HomeFeedPager(
                 onFavoriteClick = { onFavoriteClick(post.id) },
                 isCaptionExpanded = expandedCaptionPostId == post.id,
                 onToggleCaption = { onToggleCaption(post.id) },
-                onCaptionChange = { updatedCaption -> onCaptionChange(post.id, updatedCaption) }
+                onCaptionChange = { updatedCaption -> onCaptionChange(post.id, updatedCaption) },
+                captionDraft = if (expandedCaptionPostId == post.id) activeCaptionDraft else null
             )
         }
 
@@ -587,7 +638,8 @@ private fun HomeFeedPage(
     onFavoriteClick: () -> Unit,
     isCaptionExpanded: Boolean,
     onToggleCaption: () -> Unit,
-    onCaptionChange: (String) -> Unit
+    onCaptionChange: (String) -> Unit,
+    captionDraft: String?
 ) {
     Box(modifier = Modifier.fillMaxSize()) {
         if (post.uri != null) {
@@ -620,7 +672,8 @@ private fun HomeFeedPage(
             onFavoriteClick = onFavoriteClick,
             isCaptionExpanded = isCaptionExpanded,
             onToggleCaption = onToggleCaption,
-            onCaptionChange = onCaptionChange
+            onCaptionChange = onCaptionChange,
+            captionDraft = captionDraft
         )
     }
 }
@@ -657,7 +710,8 @@ private fun FeedOverlay(
     onFavoriteClick: () -> Unit,
     isCaptionExpanded: Boolean,
     onToggleCaption: () -> Unit,
-    onCaptionChange: (String) -> Unit
+    onCaptionChange: (String) -> Unit,
+    captionDraft: String?
 ) {
     Box(modifier = Modifier.fillMaxSize()) {
         BottomMetaBlock(
@@ -674,7 +728,9 @@ private fun FeedOverlay(
                 onDismiss = { updatedCaption ->
                     onCaptionChange(updatedCaption)
                     onToggleCaption()
-                }
+                },
+                draftCaption = captionDraft ?: post.caption,
+                onCaptionDraftChange = onCaptionChange
             )
         }
 
@@ -834,9 +890,10 @@ private fun BottomMetaBlock(
 private fun CenteredCaptionOverlay(
     modifier: Modifier = Modifier,
     post: VideoPostUiModel,
-    onDismiss: (String) -> Unit
+    onDismiss: (String) -> Unit,
+    draftCaption: String,
+    onCaptionDraftChange: (String) -> Unit
 ) {
-    var draftCaption by rememberSaveable(post.id) { mutableStateOf(post.caption) }
     val scrollState = rememberScrollState()
     val panelAlpha by animateFloatAsState(if (post.isEditable) 0.96f else 0.92f, label = "captionPanelAlpha")
     val panelInteractionSource = remember { MutableInteractionSource() }
@@ -883,7 +940,7 @@ private fun CenteredCaptionOverlay(
                         )
                         OutlinedTextField(
                             value = draftCaption,
-                            onValueChange = { draftCaption = it },
+                            onValueChange = onCaptionDraftChange,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .background(Color.Transparent),
