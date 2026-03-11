@@ -175,7 +175,7 @@ fun TikTokHomeScreen(
                     sourceUri = source.uri.toString(),
                     sourceFolderUri = "__all_videos__",
                     displayName = source.displayName,
-                    caption = source.displayName.substringBeforeLast('.')
+                    caption = ""
                 )
             }
         }
@@ -219,7 +219,7 @@ fun TikTokHomeScreen(
                             sourceUri = source.uri.toString(),
                             sourceFolderUri = uri.toString(),
                             displayName = source.displayName,
-                            caption = source.displayName.substringBeforeLast('.')
+                            caption = ""
                         )
                     }
                 }
@@ -489,7 +489,7 @@ fun TikTokHomeScreen(
                                 sourceUri = persistedUri.toString(),
                                 sourceFolderUri = null,
                                 displayName = store.resolveDisplayName(persistedUri),
-                                caption = caption.ifBlank { "New post" }
+                                caption = caption.trim()
                             )
                         ) + appState.videos
                     )
@@ -2330,6 +2330,12 @@ private data class FavoriteMoveProgress(
     val progress: Int
 )
 
+private fun StoredVideo.normalizedCaption(): String {
+    val trimmedCaption = caption.trim()
+    val fileStem = displayName.substringBeforeLast('.').trim()
+    return if (trimmedCaption.equals(fileStem, ignoreCase = true)) "" else trimmedCaption
+}
+
 private fun StoredVideo.isFavoriteVideo(): Boolean {
     val candidate = listOfNotNull(localPath, sourceUri).joinToString(" ").lowercase()
     return "favorite vidios" in candidate || "local tiktok favorite" in candidate
@@ -2345,7 +2351,7 @@ private fun StoredVideo.toVideoPostUiModel(): VideoPostUiModel {
         uri = uri,
         localPath = localPath,
         username = "",
-        caption = caption,
+        caption = normalizedCaption(),
         song = displayName,
         likes = "0",
         comments = comments.size.toString(),
