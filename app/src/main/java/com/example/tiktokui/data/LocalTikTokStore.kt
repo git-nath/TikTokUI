@@ -1,7 +1,9 @@
 package com.example.tiktokui.data
 
+import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
+import android.os.Build
 import android.provider.DocumentsContract
 import android.provider.MediaStore
 import org.json.JSONArray
@@ -50,10 +52,16 @@ enum class VideoSourceMode {
     Folders
 }
 
+data class FavoriteMoveResult(
+    val video: StoredVideo,
+    val alreadyFavorited: Boolean
+)
+
 class LocalTikTokStore(private val context: Context) {
     private val prefs = context.getSharedPreferences("local_tiktok_store", Context.MODE_PRIVATE)
     private val libraryDirName = "LocalTikTok"
     private val favoritesDirName = "LocalTikTok Favorite"
+    private val favoritesRelativePath = "TikTokUi/Favorite Vidios"
 
     fun load(): AppPersistedState {
         val raw = prefs.getString("app_state", null) ?: return AppPersistedState()
@@ -117,8 +125,7 @@ class LocalTikTokStore(private val context: Context) {
         return target.absolutePath
     }
 
-    fun favoriteVideo(video: StoredVideo, onProgress: (Int) -> Unit = {}): StoredVideo {
-        val targetDir = File(context.filesDir, favoritesDirName).apply { mkdirs() }
+    fun favoriteVideo(video: StoredVideo, onProgress: (Int) -> Unit = {}): FavoriteMoveResult {
         val safeName = video.displayName.ifBlank { "favorite_${System.currentTimeMillis()}.mp4" }
         val sourceUri = video.sourceUri?.takeIf { it.isNotBlank() }?.let(Uri::parse)
         val currentFile = video.localPath
@@ -129,24 +136,32 @@ class LocalTikTokStore(private val context: Context) {
             sourceUri != null -> resolveContentLength(sourceUri)
             else -> -1L
         }
+        val currentContentUri = video.localPath
+            .takeIf { it.startsWith("content://") }
+            ?.let(Uri::parse)
 
-        if (currentFile?.parentFile?.absolutePath == targetDir.absolutePath) {
+        if (currentFile?.parentFile?.name == favoritesDirName || currentContentUri?.let(::isFavoriteUri) == true) {
             onProgress(100)
-            return video
+            return FavoriteMoveResult(video = video, alreadyFavorited = true)
         }
 
-        findExistingFavorite(targetDir, safeName, sourceSize)?.let { existingFavorite ->
+        findExistingFavorite(safeName, sourceSize)?.let { existingFavorite ->
             onProgress(100)
-            return video.copy(localPath = existingFavorite.absolutePath)
+            return FavoriteMoveResult(
+                video = video.copy(
+                    localPath = existingFavorite.toString(),
+                    sourceUri = existingFavorite.toString()
+                ),
+                alreadyFavorited = true
+            )
         }
-
-        val target = createUniqueTargetFile(targetDir, safeName)
 
         when {
             currentFile != null && currentFile.exists() -> {
-                if (!currentFile.renameTo(target)) {
-                    currentFile.inputStream().use { input ->
-                        FileOutputStream(target).use { output ->
+                val destinationUri = createFavoriteDestination(safeName)
+                try {
+                    openFavoriteOutput(destinationUri).use { output ->
+                        currentFile.inputStream().use { input ->
                             copyWithProgress(
                                 input = BufferedInputStream(input),
                                 output = output,
@@ -155,30 +170,57 @@ class LocalTikTokStore(private val context: Context) {
                             )
                         }
                     }
-                    if (!currentFile.delete()) {
-                        throw IOException("Unable to delete original file after favoriting")
-                    }
+                    finalizeFavoriteDestination(destinationUri)
+                } catch (error: Throwable) {
+                    deleteFavoriteIfCreated(destinationUri)
+                    throw error
+                }
+                if (!currentFile.delete()) {
+                    deleteFavoriteIfCreated(destinationUri)
+                    throw IOException("Unable to delete original file after favoriting")
                 }
                 onProgress(100)
+                return FavoriteMoveResult(
+                    video = video.copy(
+                        localPath = destinationUri.toString(),
+                        sourceUri = destinationUri.toString()
+                    ),
+                    alreadyFavorited = false
+                )
             }
             sourceUri != null -> {
-                context.contentResolver.openInputStream(sourceUri)?.use { input ->
-                    FileOutputStream(target).use { output ->
-                        copyWithProgress(
-                            input = BufferedInputStream(input),
-                            output = output,
-                            totalBytes = resolveContentLength(sourceUri),
-                            onProgress = onProgress
-                        )
-                    }
-                } ?: throw IOException("Unable to open source video for favoriting")
-                deleteSourceIfPossible(sourceUri)
+                val destinationUri = createFavoriteDestination(safeName)
+                try {
+                    context.contentResolver.openInputStream(sourceUri)?.use { input ->
+                        openFavoriteOutput(destinationUri).use { output ->
+                            copyWithProgress(
+                                input = BufferedInputStream(input),
+                                output = output,
+                                totalBytes = resolveContentLength(sourceUri),
+                                onProgress = onProgress
+                            )
+                        }
+                    } ?: throw IOException("Unable to open source video for favoriting")
+                    finalizeFavoriteDestination(destinationUri)
+                } catch (error: Throwable) {
+                    deleteFavoriteIfCreated(destinationUri)
+                    throw error
+                }
+                if (!deleteSourceIfPossible(sourceUri)) {
+                    deleteFavoriteIfCreated(destinationUri)
+                    throw IOException("Unable to move source video into favorites")
+                }
                 onProgress(100)
+                return FavoriteMoveResult(
+                    video = video.copy(
+                        localPath = destinationUri.toString(),
+                        sourceUri = destinationUri.toString()
+                    ),
+                    alreadyFavorited = false
+                )
             }
             else -> throw IOException("Video source is unavailable")
         }
-
-        return video.copy(localPath = target.absolutePath)
     }
 
     fun takePersistablePermission(uri: Uri) {
@@ -273,12 +315,60 @@ class LocalTikTokStore(private val context: Context) {
         return target
     }
 
-    private fun findExistingFavorite(targetDir: File, preferredName: String, sourceSize: Long): File? {
-        val normalizedName = preferredName.trim().lowercase()
-        return targetDir.listFiles()?.firstOrNull { file ->
-            file.isFile &&
-                file.name.trim().lowercase() == normalizedName &&
-                (sourceSize <= 0L || file.length() == sourceSize)
+    private fun findExistingFavorite(preferredName: String, sourceSize: Long): Uri? {
+        val collection = MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+        val projection = arrayOf(
+            MediaStore.Video.Media._ID,
+            MediaStore.Video.Media.SIZE
+        )
+        val selection = "${MediaStore.Video.Media.DISPLAY_NAME} = ? AND ${MediaStore.Video.Media.RELATIVE_PATH} = ?"
+        val args = arrayOf(preferredName, normalizedRelativePath())
+        context.contentResolver.query(collection, projection, selection, args, null)?.use { cursor ->
+            val idIndex = cursor.getColumnIndexOrThrow(MediaStore.Video.Media._ID)
+            val sizeIndex = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.SIZE)
+            while (cursor.moveToNext()) {
+                val existingSize = cursor.getLong(sizeIndex)
+                if (sourceSize <= 0L || existingSize == sourceSize) {
+                    val id = cursor.getLong(idIndex)
+                    return Uri.withAppendedPath(collection, id.toString())
+                }
+            }
+        }
+        return null
+    }
+
+    private fun createFavoriteDestination(displayName: String): Uri {
+        val values = ContentValues().apply {
+            put(MediaStore.Video.Media.DISPLAY_NAME, displayName)
+            put(MediaStore.Video.Media.MIME_TYPE, guessMimeType(displayName))
+            put(MediaStore.Video.Media.RELATIVE_PATH, normalizedRelativePath())
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                put(MediaStore.Video.Media.IS_PENDING, 1)
+            }
+        }
+        return context.contentResolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values)
+            ?: throw IOException("Unable to create favorite destination")
+    }
+
+    private fun openFavoriteOutput(destinationUri: Uri): java.io.OutputStream {
+        return context.contentResolver.openOutputStream(destinationUri)
+            ?: throw IOException("Unable to open favorite destination")
+    }
+
+    private fun deleteFavoriteIfCreated(destinationUri: Uri) {
+        runCatching {
+            context.contentResolver.delete(destinationUri, null, null)
+        }
+    }
+
+    private fun finalizeFavoriteDestination(destinationUri: Uri) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            context.contentResolver.update(
+                destinationUri,
+                ContentValues().apply { put(MediaStore.Video.Media.IS_PENDING, 0) },
+                null,
+                null
+            )
         }
     }
 
@@ -292,7 +382,7 @@ class LocalTikTokStore(private val context: Context) {
 
     private fun copyWithProgress(
         input: BufferedInputStream,
-        output: FileOutputStream,
+        output: java.io.OutputStream,
         totalBytes: Long,
         onProgress: (Int) -> Unit
     ) {
@@ -316,12 +406,35 @@ class LocalTikTokStore(private val context: Context) {
         output.flush()
     }
 
-    private fun deleteSourceIfPossible(uri: Uri) {
-        runCatching {
+    private fun deleteSourceIfPossible(uri: Uri): Boolean {
+        return runCatching {
             if (DocumentsContract.isDocumentUri(context, uri)) {
                 DocumentsContract.deleteDocument(context.contentResolver, uri)
+            } else {
+                context.contentResolver.delete(uri, null, null) > 0
+            }
+        }.getOrDefault(false)
+    }
+
+    private fun isFavoriteUri(uri: Uri): Boolean {
+        val projection = arrayOf(MediaStore.Video.Media.RELATIVE_PATH)
+        context.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                val relativePath = cursor.getString(0).orEmpty()
+                return relativePath.trimEnd('/', '\\') == favoritesRelativePath
             }
         }
+        return false
+    }
+
+    private fun normalizedRelativePath(): String = "$favoritesRelativePath/"
+
+    private fun guessMimeType(displayName: String): String = when (displayName.substringAfterLast('.', "").lowercase()) {
+        "mp4" -> "video/mp4"
+        "mkv" -> "video/x-matroska"
+        "webm" -> "video/webm"
+        "3gp" -> "video/3gpp"
+        else -> "video/*"
     }
 }
 

@@ -51,6 +51,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.outlined.ChatBubble
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.GridOn
@@ -294,15 +295,15 @@ fun TikTokHomeScreen(
                                         }
                                     }
                                 }
-                            }.onSuccess { favoritedVideo ->
+                            }.onSuccess { favoriteResult ->
                                 val updatedVideos = appState.videos.toMutableList()
-                                updatedVideos[index] = favoritedVideo
+                                updatedVideos[index] = favoriteResult.video
                                 appState = appState.copy(videos = updatedVideos)
                                 favoriteMoveProgress = favoriteMoveProgress?.copy(progress = 100)
-                                val message = if (favoritedVideo.localPath == appState.videos[index].localPath) {
+                                val message = if (favoriteResult.alreadyFavorited) {
                                     "Already in Local TikTok Favorite"
                                 } else {
-                                    "Moved to Local TikTok Favorite"
+                                    "Moved to TikTokUi/Favorite Vidios"
                                 }
                                 Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
                             }.onFailure {
@@ -935,7 +936,7 @@ private fun FavoriteDisc(enabled: Boolean, onClick: () -> Unit) {
             contentAlignment = Alignment.Center
         ) {
             Icon(
-                imageVector = Icons.Outlined.TurnedInNot,
+                imageVector = Icons.Filled.Bookmark,
                 contentDescription = "Add to favorites",
                 tint = Color.Black,
                 modifier = Modifier.size(15.dp)
