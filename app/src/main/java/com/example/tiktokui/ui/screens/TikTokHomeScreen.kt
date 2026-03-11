@@ -119,6 +119,12 @@ import com.example.tiktokui.data.SharedLinkItem
 import com.example.tiktokui.data.StoredVideo
 import com.example.tiktokui.data.VideoSourceMode
 import com.example.tiktokui.ui.theme.TikTokAccent
+import com.example.tiktokui.ui.theme.TikTokAccentSoft
+import com.example.tiktokui.ui.theme.TikTokBackground
+import com.example.tiktokui.ui.theme.TikTokCard
+import com.example.tiktokui.ui.theme.TikTokCardMuted
+import com.example.tiktokui.ui.theme.TikTokJournalGold
+import com.example.tiktokui.ui.theme.TikTokJournalNavy
 import com.example.tiktokui.ui.theme.TikTokOutline
 import com.example.tiktokui.ui.theme.TikTokSurfaceVariant
 import com.example.tiktokui.ui.theme.TikTokTextSecondary
@@ -821,28 +827,57 @@ private fun TopTabs(modifier: Modifier = Modifier, feedCounter: String) {
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(20.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = "Following",
-                color = Color.White.copy(alpha = 0.72f),
-                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Medium)
-            )
-            Text(
-                text = "For You",
-                color = Color.White,
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, fontSize = 18.sp)
-            )
+        Surface(
+            color = Color.Black.copy(alpha = 0.22f),
+            shape = RoundedCornerShape(999.dp),
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.08f))
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Following",
+                    color = Color.White.copy(alpha = 0.66f),
+                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Medium),
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                )
+                Surface(
+                    color = Color.White.copy(alpha = 0.14f),
+                    shape = RoundedCornerShape(999.dp)
+                ) {
+                    Text(
+                        text = "For You",
+                        color = Color.White,
+                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                    )
+                }
+            }
         }
         Surface(
-            color = Color.Black.copy(alpha = 0.28f),
-            shape = RoundedCornerShape(999.dp)
+            color = Color.Black.copy(alpha = 0.24f),
+            shape = RoundedCornerShape(999.dp),
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.08f))
         ) {
-            Text(
-                text = feedCounter,
-                color = Color.White,
-                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
-            )
+            Row(
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(7.dp)
+                        .clip(CircleShape)
+                        .background(TikTokAccent)
+                )
+                Text(
+                    text = feedCounter,
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
+                )
+            }
         }
     }
 }
@@ -1184,13 +1219,20 @@ private fun BottomNavBar(
     onCreateClick: () -> Unit,
     darkTheme: Boolean
 ) {
-    val surfaceColor = if (darkTheme) Color.Black.copy(alpha = 0.95f) else Color.White
+    val surfaceColor = if (darkTheme) Color.Black.copy(alpha = 0.92f) else Color.White.copy(alpha = 0.98f)
     val foreground = if (darkTheme) Color.White else Color.Black
-    val secondary = if (darkTheme) Color.White.copy(alpha = 0.72f) else TikTokTextSecondary
+    val secondary = if (darkTheme) Color.White.copy(alpha = 0.64f) else TikTokTextSecondary
 
-    Surface(modifier = modifier.fillMaxWidth(), color = surfaceColor) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        color = surfaceColor,
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            if (darkTheme) Color.White.copy(alpha = 0.06f) else TikTokOutline.copy(alpha = 0.82f)
+        )
+    ) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.SpaceAround,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -1200,13 +1242,15 @@ private fun BottomNavBar(
                 selected = selectedTab == BottomTab.Home,
                 activeColor = foreground,
                 inactiveColor = secondary,
+                darkTheme = darkTheme,
                 onClick = { onTabSelected(BottomTab.Home) }
             )
             NavItem(
                 icon = Icons.Outlined.Search,
                 label = "Discover",
                 activeColor = foreground,
-                inactiveColor = secondary
+                inactiveColor = secondary,
+                darkTheme = darkTheme
             )
             CreateButton(onClick = onCreateClick)
             NavItem(
@@ -1215,6 +1259,7 @@ private fun BottomNavBar(
                 selected = selectedTab == BottomTab.Inbox,
                 activeColor = foreground,
                 inactiveColor = secondary,
+                darkTheme = darkTheme,
                 onClick = { onTabSelected(BottomTab.Inbox) }
             )
             NavItem(
@@ -1223,6 +1268,7 @@ private fun BottomNavBar(
                 selected = selectedTab == BottomTab.Profile,
                 activeColor = foreground,
                 inactiveColor = secondary,
+                darkTheme = darkTheme,
                 onClick = { onTabSelected(BottomTab.Profile) }
             )
         }
@@ -1236,23 +1282,33 @@ private fun NavItem(
     selected: Boolean = false,
     activeColor: Color,
     inactiveColor: Color,
+    darkTheme: Boolean,
     onClick: (() -> Unit)? = null
 ) {
     Column(
         modifier = if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier,
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(2.dp)
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = label,
-            tint = if (selected) activeColor else inactiveColor,
-            modifier = Modifier.size(22.dp)
-        )
+        Surface(
+            color = when {
+                selected && darkTheme -> Color.White.copy(alpha = 0.10f)
+                selected -> TikTokAccentSoft
+                else -> Color.Transparent
+            },
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                tint = if (selected) activeColor else inactiveColor,
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp).size(20.dp)
+            )
+        }
         Text(
             text = label,
             color = if (selected) activeColor else inactiveColor,
-            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp)
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium)
         )
     }
 }
@@ -1335,21 +1391,68 @@ private fun FolderManagerCard(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Surface(
-            color = Color(0xFFF7F8FA),
-            shape = RoundedCornerShape(24.dp),
-            border = androidx.compose.foundation.BorderStroke(1.dp, TikTokOutline.copy(alpha = 0.55f))
+            color = TikTokCard,
+            shape = RoundedCornerShape(28.dp),
+            border = androidx.compose.foundation.BorderStroke(1.dp, TikTokOutline.copy(alpha = 0.55f)),
+            shadowElevation = 3.dp
         ) {
             Column(
-                modifier = Modifier.padding(18.dp),
+                modifier = Modifier.padding(20.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Surface(color = TikTokAccentSoft, shape = RoundedCornerShape(14.dp)) {
+                        Icon(
+                            imageVector = Icons.Rounded.Folder,
+                            contentDescription = null,
+                            tint = TikTokAccent,
+                            modifier = Modifier.padding(10.dp).size(18.dp)
+                        )
+                    }
+                    Column {
+                        Text(
+                            text = "Folder library",
+                            color = Color.Black,
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                        )
+                        Text(
+                            text = "${folders.size} selected folders · ${if (videoSourceMode == VideoSourceMode.Folders) "Playing folder feed" else "All device videos active"}",
+                            color = TikTokTextSecondary,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+                Surface(
+                    color = TikTokCardMuted,
+                    shape = RoundedCornerShape(18.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Journal mode",
+                            color = Color.Black,
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold)
+                        )
+                        Text(
+                            text = "Folders first",
+                            color = TikTokAccent,
+                            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
+                        )
+                    }
+                }
                 Text(
                     text = "Selected folders",
                     color = Color.Black,
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
                 )
                 if (folders.isEmpty()) {
                     Text(
@@ -1361,7 +1464,7 @@ private fun FolderManagerCard(
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         folders.forEach { folder ->
                             Surface(
-                                color = Color.White,
+                                color = TikTokCardMuted,
                                 shape = RoundedCornerShape(18.dp),
                                 border = androidx.compose.foundation.BorderStroke(1.dp, TikTokOutline.copy(alpha = 0.5f))
                             ) {
@@ -1385,7 +1488,7 @@ private fun FolderManagerCard(
                                     Icon(
                                         imageVector = Icons.Outlined.Lock,
                                         contentDescription = null,
-                                        tint = Color.Black.copy(alpha = 0.72f)
+                                        tint = TikTokTextSecondary
                                     )
                                 }
                             }
@@ -1398,8 +1501,8 @@ private fun FolderManagerCard(
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Surface(
                 modifier = Modifier.weight(1f).clickable(onClick = onUseFolderModeClick),
-                color = if (videoSourceMode == VideoSourceMode.Folders) Color(0xFF111111) else Color.White,
-                shape = RoundedCornerShape(18.dp),
+                color = if (videoSourceMode == VideoSourceMode.Folders) TikTokJournalNavy else TikTokCard,
+                shape = RoundedCornerShape(20.dp),
                 border = androidx.compose.foundation.BorderStroke(
                     1.dp,
                     if (videoSourceMode == VideoSourceMode.Folders) Color.Transparent else TikTokOutline.copy(alpha = 0.6f)
@@ -1415,8 +1518,8 @@ private fun FolderManagerCard(
             }
             Surface(
                 modifier = Modifier.weight(1f).clickable(onClick = onEnableAllVideosClick),
-                color = if (videoSourceMode == VideoSourceMode.All) Color(0xFF111111) else Color.White,
-                shape = RoundedCornerShape(18.dp),
+                color = if (videoSourceMode == VideoSourceMode.All) TikTokJournalNavy else TikTokCard,
+                shape = RoundedCornerShape(20.dp),
                 border = androidx.compose.foundation.BorderStroke(
                     1.dp,
                     if (videoSourceMode == VideoSourceMode.All) Color.Transparent else TikTokOutline.copy(alpha = 0.6f)
@@ -1435,8 +1538,8 @@ private fun FolderManagerCard(
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Surface(
                 modifier = Modifier.weight(1f).clickable(onClick = onAddFolderClick),
-                color = Color.White,
-                shape = RoundedCornerShape(18.dp),
+                color = TikTokCard,
+                shape = RoundedCornerShape(20.dp),
                 border = androidx.compose.foundation.BorderStroke(1.dp, TikTokOutline.copy(alpha = 0.6f))
             ) {
                 Box(modifier = Modifier.padding(vertical = 15.dp), contentAlignment = Alignment.Center) {
@@ -1449,8 +1552,8 @@ private fun FolderManagerCard(
             }
             Surface(
                 modifier = Modifier.weight(1f).clickable(onClick = onTogglePlayOrder),
-                color = Color(0xFF111111),
-                shape = RoundedCornerShape(18.dp)
+                color = Color.Black,
+                shape = RoundedCornerShape(20.dp)
             ) {
                 Box(modifier = Modifier.padding(vertical = 15.dp), contentAlignment = Alignment.Center) {
                     Text(
@@ -1473,46 +1576,68 @@ private fun InboxScreen(
     onPreviewLink: (String) -> Unit,
     onInspectLink: (String) -> Unit
 ) {
-    Box(modifier = Modifier.fillMaxSize().background(Color.White)) {
+    Box(modifier = Modifier.fillMaxSize().background(TikTokBackground)) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
                 .padding(horizontal = 18.dp, vertical = 18.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Text(
-                text = "Inbox",
-                color = Color.Black,
-                style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold)
-            )
-            Text(
-                text = "Saved links are cleaned up first, then previewed inside the app before you open them elsewhere.",
-                color = TikTokTextSecondary,
-                style = MaterialTheme.typography.bodyMedium
-            )
+            Surface(
+                color = TikTokCard,
+                shape = RoundedCornerShape(28.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, TikTokOutline.copy(alpha = 0.7f)),
+                shadowElevation = 3.dp
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 18.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "Link inbox",
+                        color = Color.Black,
+                        style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold)
+                    )
+                    Text(
+                        text = "Keep TikTok, YouTube, and Instagram links here before you decide what belongs in your video journal.",
+                        color = TikTokTextSecondary,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+            }
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (links.isEmpty()) {
                     Surface(
-                        color = Color(0xFFF7F7F7),
-                        shape = RoundedCornerShape(18.dp),
+                        color = TikTokCard,
+                        shape = RoundedCornerShape(24.dp),
                         border = androidx.compose.foundation.BorderStroke(1.dp, TikTokOutline.copy(alpha = 0.6f))
                     ) {
-                        Text(
-                            text = "No shared links yet. Use Android Share on a link and choose this app.",
-                            color = TikTokTextSecondary,
-                            style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.padding(16.dp)
-                        )
+                        Column(
+                            modifier = Modifier.padding(18.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = "Nothing saved yet",
+                                color = Color.Black,
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                            Text(
+                                text = "Use Android Share on a link and choose this app to drop it here.",
+                                color = TikTokTextSecondary,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
                     }
                 } else {
                     links.forEach { link ->
                         val cleanedUrl = remember(link.url) { cleanSharedUrl(link.url) }
                         val title = remember(cleanedUrl) { linkDisplayTitle(cleanedUrl) }
                         Surface(
-                            color = Color(0xFFF7F7F7),
-                            shape = RoundedCornerShape(22.dp),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, TikTokOutline.copy(alpha = 0.6f))
+                            color = TikTokCard,
+                            shape = RoundedCornerShape(24.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, TikTokOutline.copy(alpha = 0.6f)),
+                            shadowElevation = 2.dp
                         ) {
                             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                 Text(
@@ -1762,91 +1887,122 @@ private fun InspectDetailRow(label: String, value: String) {
 @Composable
 private fun ProfileTopBar() {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 16.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(
-            imageVector = Icons.Outlined.PersonAddAlt1,
-            contentDescription = "Add friends",
-            tint = Color.Black,
-            modifier = Modifier.size(22.dp)
-        )
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = "Jacob West",
-                color = Color.Black,
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold)
+        Surface(color = TikTokCardMuted, shape = RoundedCornerShape(14.dp)) {
+            Icon(
+                imageVector = Icons.Outlined.PersonAddAlt1,
+                contentDescription = "Add friends",
+                tint = Color.Black,
+                modifier = Modifier.padding(10.dp).size(20.dp)
             )
-            Text(text = " \u25BE", color = Color.Black, style = MaterialTheme.typography.labelMedium)
         }
-        Icon(
-            imageVector = Icons.Outlined.MoreHoriz,
-            contentDescription = "More",
-            tint = Color.Black,
-            modifier = Modifier.size(22.dp)
-        )
+        Surface(
+            color = TikTokCardMuted,
+            shape = RoundedCornerShape(999.dp)
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Jacob West",
+                    color = Color.Black,
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold)
+                )
+                Text(text = " \u25BE", color = TikTokTextSecondary, style = MaterialTheme.typography.labelMedium)
+            }
+        }
+        Surface(color = TikTokCardMuted, shape = RoundedCornerShape(14.dp)) {
+            Icon(
+                imageVector = Icons.Outlined.MoreHoriz,
+                contentDescription = "More",
+                tint = Color.Black,
+                modifier = Modifier.padding(10.dp).size(20.dp)
+            )
+        }
     }
 }
 
 @Composable
 private fun ProfileHeader(totalPosts: Int) {
-    Column(
-        modifier = Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 12.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+        color = TikTokCard,
+        shape = RoundedCornerShape(28.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, TikTokOutline.copy(alpha = 0.8f)),
+        shadowElevation = 3.dp
     ) {
-        Box(
-            modifier = Modifier.size(84.dp).clip(CircleShape).background(
-                Brush.radialGradient(colors = listOf(Color(0xFFFFC78E), Color(0xFFE07B52), Color(0xFF8F4E2F)))
-            ),
-            contentAlignment = Alignment.Center
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(top = 18.dp, bottom = 18.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Box(
-                modifier = Modifier.size(64.dp).clip(CircleShape).background(
-                    Brush.verticalGradient(colors = listOf(Color(0xFF9B7A58), Color(0xFF5F4835)))
-                )
-            )
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-        Text(
-            text = "@jacob_w",
-            color = Color.Black,
-            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold)
-        )
-        Spacer(modifier = Modifier.height(16.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(28.dp), verticalAlignment = Alignment.CenterVertically) {
-            ProfileStat(value = totalPosts.toString(), label = "Following")
-            ProfileStat(value = totalPosts.toString(), label = "Followers")
-            ProfileStat(value = totalPosts.toString(), label = "Posts")
-        }
-        Spacer(modifier = Modifier.height(18.dp))
-        Surface(
-            color = Color(0xFFF6F7F9),
-            shape = RoundedCornerShape(18.dp),
-            border = androidx.compose.foundation.BorderStroke(1.dp, TikTokOutline.copy(alpha = 0.6f))
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically
+                modifier = Modifier
+                    .size(92.dp)
+                    .clip(CircleShape)
+                    .background(
+                        Brush.radialGradient(
+                            colors = listOf(Color(0xFFFFC78E), Color(0xFFE07B52), Color(0xFF8F4E2F))
+                        )
+                    ),
+                contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    imageVector = Icons.Filled.Bookmark,
-                    contentDescription = "Favorite folder",
-                    tint = Color(0xFFF5C542),
-                    modifier = Modifier.size(18.dp)
+                Box(
+                    modifier = Modifier
+                        .size(70.dp)
+                        .clip(CircleShape)
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(Color(0xFF9B7A58), Color(0xFF5F4835))
+                            )
+                        )
                 )
-                Text(
-                    text = "Favorite folder",
-                    color = Color.Black,
-                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
-                )
-                Text(
-                    text = "TikTokUi/Favorite Vidios",
-                    color = TikTokTextSecondary,
-                    style = MaterialTheme.typography.bodySmall
-                )
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = "@jacob_w",
+                color = Color.Black,
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold)
+            )
+            Spacer(modifier = Modifier.height(14.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(24.dp), verticalAlignment = Alignment.CenterVertically) {
+                ProfileStat(value = totalPosts.toString(), label = "Following")
+                ProfileStat(value = totalPosts.toString(), label = "Followers")
+                ProfileStat(value = totalPosts.toString(), label = "Posts")
+            }
+            Spacer(modifier = Modifier.height(18.dp))
+            Surface(
+                color = TikTokCardMuted,
+                shape = RoundedCornerShape(18.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, TikTokOutline.copy(alpha = 0.6f))
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Bookmark,
+                        contentDescription = "Favorite folder",
+                        tint = TikTokJournalGold,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Text(
+                        text = "Favorite folder",
+                        color = Color.Black,
+                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
+                    )
+                    Text(
+                        text = "TikTokUi/Favorite Vidios",
+                        color = TikTokTextSecondary,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
             }
         }
     }
@@ -1872,9 +2028,10 @@ private fun ProfileTabRow(
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        color = Color(0xFFF6F7F9),
-        shape = RoundedCornerShape(18.dp)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        color = TikTokCardMuted,
+        shape = RoundedCornerShape(22.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, TikTokOutline.copy(alpha = 0.6f))
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(6.dp),
@@ -1915,8 +2072,9 @@ private fun ProfileSectionChip(
 ) {
     Surface(
         modifier = modifier.clickable(onClick = onClick),
-        color = if (selected) Color.White else Color.Transparent,
-        shape = RoundedCornerShape(14.dp),
+        color = if (selected) TikTokCard else Color.Transparent,
+        shape = RoundedCornerShape(16.dp),
+        border = if (selected) androidx.compose.foundation.BorderStroke(1.dp, TikTokOutline.copy(alpha = 0.7f)) else null,
         shadowElevation = if (selected) 2.dp else 0.dp
     ) {
         Row(
@@ -1927,13 +2085,13 @@ private fun ProfileSectionChip(
             Icon(
                 imageVector = icon,
                 contentDescription = label,
-                tint = if (selected) Color.Black else TikTokTextSecondary,
+                tint = if (selected) TikTokJournalNavy else TikTokTextSecondary,
                 modifier = Modifier.size(18.dp)
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
                 text = label,
-                color = if (selected) Color.Black else TikTokTextSecondary,
+                color = if (selected) TikTokJournalNavy else TikTokTextSecondary,
                 style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
             )
         }
@@ -2105,36 +2263,54 @@ private fun UploadCaptionSheet(
     ) {
         Surface(
             modifier = Modifier.fillMaxWidth().clickable(enabled = false) {}.navigationBarsPadding(),
-            color = Color.White,
-            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+            color = TikTokCard,
+            shape = RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp),
             tonalElevation = 0.dp,
-            shadowElevation = 10.dp
+            shadowElevation = 14.dp
         ) {
             Column(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 20.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                Text(
-                    text = "New video",
-                    color = Color.Black,
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                )
-                Text(
-                    text = selectedVideoUri?.lastPathSegment ?: "Selected video",
-                    color = TikTokTextSecondary,
-                    style = MaterialTheme.typography.bodyMedium
-                )
+                Surface(
+                    color = TikTokCardMuted,
+                    shape = RoundedCornerShape(20.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = "Add journal note",
+                            color = Color.Black,
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                        )
+                        Text(
+                            text = "This note stays attached to the video like a private diary entry.",
+                            color = TikTokTextSecondary,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Text(
+                            text = selectedVideoUri?.lastPathSegment ?: "Selected video",
+                            color = TikTokTextSecondary,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
                 OutlinedTextField(
                     value = caption,
                     onValueChange = onCaptionChange,
                     modifier = Modifier.fillMaxWidth(),
                     minLines = 4,
-                    maxLines = 6,
-                    label = { Text("Caption") },
-                    placeholder = { Text("Write a caption for your video") },
+                    maxLines = 7,
+                    label = { Text("Note") },
+                    placeholder = { Text("What happened here? What do you want to remember?") },
+                    shape = RoundedCornerShape(20.dp),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = TikTokOutline,
-                        unfocusedBorderColor = TikTokOutline.copy(alpha = 0.7f)
+                        focusedBorderColor = TikTokAccent,
+                        unfocusedBorderColor = TikTokOutline.copy(alpha = 0.7f),
+                        focusedContainerColor = Color.White,
+                        unfocusedContainerColor = Color.White
                     )
                 )
                 Row(
