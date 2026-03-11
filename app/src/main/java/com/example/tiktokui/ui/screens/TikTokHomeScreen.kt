@@ -2263,9 +2263,8 @@ private fun openVideoLocation(context: Context, video: StoredVideo?) {
 
     val opened = runCatching {
         context.startActivity(
-            Intent(Intent.ACTION_VIEW).apply {
-                setData(folderUri)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+                putExtra("android.provider.extra.INITIAL_URI", folderUri)
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
         )
