@@ -91,7 +91,6 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -672,8 +671,10 @@ private fun FeedOverlay(
             CenteredCaptionOverlay(
                 modifier = Modifier.align(Alignment.BottomStart),
                 post = post,
-                onDismiss = onToggleCaption,
-                onCaptionChange = onCaptionChange
+                onDismiss = { updatedCaption ->
+                    onCaptionChange(updatedCaption)
+                    onToggleCaption()
+                }
             )
         }
 
@@ -833,30 +834,19 @@ private fun BottomMetaBlock(
 private fun CenteredCaptionOverlay(
     modifier: Modifier = Modifier,
     post: VideoPostUiModel,
-    onDismiss: () -> Unit,
-    onCaptionChange: (String) -> Unit
+    onDismiss: (String) -> Unit
 ) {
     var draftCaption by rememberSaveable(post.id) { mutableStateOf(post.caption) }
     val scrollState = rememberScrollState()
     val panelAlpha by animateFloatAsState(if (post.isEditable) 0.96f else 0.92f, label = "captionPanelAlpha")
     val panelInteractionSource = remember { MutableInteractionSource() }
-    val latestDraftCaption by rememberUpdatedState(draftCaption)
-    val initialCaption = post.caption
-
-    androidx.compose.runtime.DisposableEffect(post.id) {
-        onDispose {
-            if (post.isEditable && latestDraftCaption != initialCaption) {
-                onCaptionChange(latestDraftCaption.trim())
-            }
-        }
-    }
     Box(
         modifier = Modifier.fillMaxSize()
     ) {
         Box(
             modifier = Modifier
                 .matchParentSize()
-                .clickable(onClick = onDismiss)
+                .clickable(onClick = { onDismiss(draftCaption.trim()) })
         )
         AnimatedVisibility(
             visible = true,
