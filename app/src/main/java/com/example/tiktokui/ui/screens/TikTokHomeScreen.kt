@@ -174,7 +174,7 @@ fun TikTokHomeScreen(
             android.Manifest.permission.READ_EXTERNAL_STORAGE
         }
     }
-    val videoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+    val videoPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         selectedVideoUri = uri
         if (uri != null) caption = ""
     }
@@ -336,7 +336,7 @@ fun TikTokHomeScreen(
                 },
                 onCreateClick = {
                     showComments = false
-                    videoPicker.launch("video/*")
+                    videoPicker.launch(arrayOf("video/*"))
                 }
             )
 
@@ -350,7 +350,7 @@ fun TikTokHomeScreen(
                 onTabSelected = { tapped ->
                     selectedTab = if (tapped == BottomTab.Profile) BottomTab.Home else tapped
                 },
-                onCreateClick = { videoPicker.launch("video/*") },
+                onCreateClick = { videoPicker.launch(arrayOf("video/*")) },
                 onAddFolderClick = { folderPicker.launch(null) },
                 onEnableAllVideosClick = {
                     if (ContextCompat.checkSelfPermission(context, mediaPermission) == PackageManager.PERMISSION_GRANTED) {
@@ -382,7 +382,7 @@ fun TikTokHomeScreen(
                 onTabSelected = { tapped ->
                     selectedTab = if (tapped == BottomTab.Inbox) BottomTab.Home else tapped
                 },
-                onCreateClick = { videoPicker.launch("video/*") },
+                onCreateClick = { videoPicker.launch(arrayOf("video/*")) },
                 onPreviewLink = { inboxPreviewUrl = it },
                 onInspectLink = { inboxInspectUrl = it }
             )
@@ -2111,7 +2111,7 @@ private fun persistReadPermission(context: Context, uri: Uri): Uri {
     runCatching {
         context.contentResolver.takePersistableUriPermission(
             uri,
-            android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+            android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION
         )
     }
     return uri
