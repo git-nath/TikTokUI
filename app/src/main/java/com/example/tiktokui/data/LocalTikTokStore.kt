@@ -3,6 +3,7 @@ package com.example.tiktokui.data
 import android.content.Context
 import android.net.Uri
 import android.provider.DocumentsContract
+import android.provider.MediaStore
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -12,7 +13,8 @@ data class AppPersistedState(
     val videos: List<StoredVideo> = emptyList(),
     val folders: List<SelectedFolder> = emptyList(),
     val inboxLinks: List<SharedLinkItem> = emptyList(),
-    val playOrder: PlayOrder = PlayOrder.Sequential
+    val playOrder: PlayOrder = PlayOrder.Sequential,
+    val videoSourceMode: VideoSourceMode = VideoSourceMode.Folders
 )
 
 data class StoredVideo(
@@ -41,6 +43,11 @@ enum class PlayOrder {
     Shuffle
 }
 
+enum class VideoSourceMode {
+    All,
+    Folders
+}
+
 class LocalTikTokStore(private val context: Context) {
     private val prefs = context.getSharedPreferences("local_tiktok_store", Context.MODE_PRIVATE)
 
@@ -52,7 +59,8 @@ class LocalTikTokStore(private val context: Context) {
                 videos = json.optJSONArray("videos").toStoredVideos(),
                 folders = json.optJSONArray("folders").toFolders(),
                 inboxLinks = json.optJSONArray("inbox").toInboxLinks(),
-                playOrder = PlayOrder.valueOf(json.optString("play_order", PlayOrder.Sequential.name))
+                playOrder = PlayOrder.valueOf(json.optString("play_order", PlayOrder.Sequential.name)),
+                videoSourceMode = VideoSourceMode.valueOf(json.optString("video_source_mode", VideoSourceMode.Folders.name))
             )
         }.getOrDefault(AppPersistedState())
     }
@@ -60,6 +68,7 @@ class LocalTikTokStore(private val context: Context) {
     fun save(state: AppPersistedState) {
         val json = JSONObject().apply {
             put("play_order", state.playOrder.name)
+            put("video_source_mode", state.videoSourceMode.name)
             put("videos", JSONArray().apply {
                 state.videos.forEach { video ->
                     put(JSONObject().apply {
@@ -137,6 +146,27 @@ class LocalTikTokStore(private val context: Context) {
     fun scanFolderVideos(treeUri: Uri): List<FolderVideoSource> {
         val results = mutableListOf<FolderVideoSource>()
         scanChildren(treeUri, treeUri, results)
+        return results
+    }
+
+    fun scanAllDeviceVideos(): List<FolderVideoSource> {
+        val collection = MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+        val projection = arrayOf(
+            MediaStore.Video.Media._ID,
+            MediaStore.Video.Media.DISPLAY_NAME
+        )
+        val sortOrder = "${MediaStore.Video.Media.DATE_ADDED} DESC"
+        val results = mutableListOf<FolderVideoSource>()
+        context.contentResolver.query(collection, projection, null, null, sortOrder)?.use { cursor ->
+            val idIndex = cursor.getColumnIndexOrThrow(MediaStore.Video.Media._ID)
+            val nameIndex = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DISPLAY_NAME)
+            while (cursor.moveToNext()) {
+                val id = cursor.getLong(idIndex)
+                val name = cursor.getString(nameIndex) ?: "video_$id.mp4"
+                val uri = Uri.withAppendedPath(collection, id.toString())
+                results += FolderVideoSource(uri = uri, displayName = name)
+            }
+        }
         return results
     }
 

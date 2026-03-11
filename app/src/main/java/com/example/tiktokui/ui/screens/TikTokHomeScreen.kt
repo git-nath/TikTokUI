@@ -2,6 +2,7 @@ package com.example.tiktokui.ui.screens
 
 import android.content.Intent
 import android.content.Context
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
 import android.media.ThumbnailUtils
@@ -12,6 +13,7 @@ import android.webkit.WebViewClient
 import android.widget.VideoView
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -108,6 +110,7 @@ import com.example.tiktokui.data.PlayOrder
 import com.example.tiktokui.data.SelectedFolder
 import com.example.tiktokui.data.SharedLinkItem
 import com.example.tiktokui.data.StoredVideo
+import com.example.tiktokui.data.VideoSourceMode
 import com.example.tiktokui.ui.theme.TikTokAccent
 import com.example.tiktokui.ui.theme.TikTokOutline
 import com.example.tiktokui.ui.theme.TikTokSurfaceVariant
@@ -141,9 +144,43 @@ fun TikTokHomeScreen(
     var profileSection by rememberSaveable { mutableStateOf(ProfileSection.Posts) }
     var inboxPreviewUrl by rememberSaveable { mutableStateOf<String?>(null) }
     var inboxInspectUrl by rememberSaveable { mutableStateOf<String?>(null) }
+    val mediaPermission = remember {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            android.Manifest.permission.READ_MEDIA_VIDEO
+        } else {
+            android.Manifest.permission.READ_EXTERNAL_STORAGE
+        }
+    }
     val videoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         selectedVideoUri = uri
         if (uri != null) caption = ""
+    }
+    val allVideosPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) {
+            scope.launch {
+                val importedVideos = withContext(Dispatchers.IO) {
+                    store.scanAllDeviceVideos().mapNotNull { source ->
+                        val alreadyImported = appState.videos.any { it.sourceUri == source.uri.toString() }
+                        if (alreadyImported) null else {
+                            StoredVideo(
+                                id = UUID.randomUUID().toString(),
+                                localPath = store.copyIntoLibrary(source.uri, source.displayName),
+                                sourceUri = source.uri.toString(),
+                                sourceFolderUri = "__all_videos__",
+                                displayName = source.displayName,
+                                caption = source.displayName.substringBeforeLast('.')
+                            )
+                        }
+                    }
+                }
+                appState = appState.copy(
+                    videoSourceMode = VideoSourceMode.All,
+                    videos = (importedVideos + appState.videos).distinctBy { it.localPath }
+                )
+            }
+        } else {
+            Toast.makeText(context, "Video access permission is required for All videos", Toast.LENGTH_SHORT).show()
+        }
     }
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
@@ -195,8 +232,14 @@ fun TikTokHomeScreen(
         }
     }
 
-    val homeFeedPosts = remember(appState.videos, appState.playOrder) {
-        val importedPosts = appState.videos.map { it.toVideoPostUiModel() }
+    val visibleVideos = remember(appState.videos, appState.videoSourceMode) {
+        when (appState.videoSourceMode) {
+            VideoSourceMode.All -> appState.videos
+            VideoSourceMode.Folders -> appState.videos.filter { it.sourceFolderUri != "__all_videos__" || appState.folders.isEmpty() }
+        }
+    }
+    val homeFeedPosts = remember(visibleVideos, appState.playOrder) {
+        val importedPosts = visibleVideos.map { it.toVideoPostUiModel() }
         val orderedPosts = when (appState.playOrder) {
             PlayOrder.Sequential -> importedPosts
             PlayOrder.Shuffle -> importedPosts.shuffled()
@@ -242,6 +285,7 @@ fun TikTokHomeScreen(
                     }
                 },
                 selectedTab = selectedTab,
+                feedCounter = "${pagerState.currentPage + 1}/${homeFeedPosts.size}",
                 onTabSelected = { tapped ->
                     selectedTab = when {
                         tapped == BottomTab.Profile && selectedTab == BottomTab.Profile -> BottomTab.Home
@@ -259,6 +303,7 @@ fun TikTokHomeScreen(
                 postedVideos = appState.videos.map { it.toVideoPostUiModel() },
                 selectedFolders = appState.folders,
                 playOrder = appState.playOrder,
+                videoSourceMode = appState.videoSourceMode,
                 selectedSection = profileSection,
                 selectedTab = selectedTab,
                 onTabSelected = { tapped ->
@@ -266,6 +311,36 @@ fun TikTokHomeScreen(
                 },
                 onCreateClick = { videoPicker.launch("video/*") },
                 onAddFolderClick = { folderPicker.launch(null) },
+                onEnableAllVideosClick = {
+                    if (ContextCompat.checkSelfPermission(context, mediaPermission) == PackageManager.PERMISSION_GRANTED) {
+                        scope.launch {
+                            val importedVideos = withContext(Dispatchers.IO) {
+                                store.scanAllDeviceVideos().mapNotNull { source ->
+                                    val alreadyImported = appState.videos.any { it.sourceUri == source.uri.toString() }
+                                    if (alreadyImported) null else {
+                                        StoredVideo(
+                                            id = UUID.randomUUID().toString(),
+                                            localPath = store.copyIntoLibrary(source.uri, source.displayName),
+                                            sourceUri = source.uri.toString(),
+                                            sourceFolderUri = "__all_videos__",
+                                            displayName = source.displayName,
+                                            caption = source.displayName.substringBeforeLast('.')
+                                        )
+                                    }
+                                }
+                            }
+                            appState = appState.copy(
+                                videoSourceMode = VideoSourceMode.All,
+                                videos = (importedVideos + appState.videos).distinctBy { it.localPath }
+                            )
+                        }
+                    } else {
+                        allVideosPermissionLauncher.launch(mediaPermission)
+                    }
+                },
+                onUseFolderModeClick = {
+                    appState = appState.copy(videoSourceMode = VideoSourceMode.Folders)
+                },
                 onSectionSelected = { profileSection = it },
                 onTogglePlayOrder = {
                     appState = appState.copy(
@@ -356,6 +431,7 @@ private fun HomeFeedPager(
     expandedCaptionPostId: String?,
     onToggleCaption: (String) -> Unit,
     onCaptionChange: (String, String) -> Unit,
+    feedCounter: String,
     selectedTab: BottomTab,
     onTabSelected: (BottomTab) -> Unit,
     onCreateClick: () -> Unit
@@ -381,6 +457,11 @@ private fun HomeFeedPager(
             onTabSelected = onTabSelected,
             onCreateClick = onCreateClick,
             darkTheme = true
+        )
+
+        TopTabs(
+            modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding(),
+            feedCounter = feedCounter
         )
     }
 }
@@ -463,10 +544,6 @@ private fun FeedOverlay(
     onCaptionChange: (String) -> Unit
 ) {
     Box(modifier = Modifier.fillMaxSize()) {
-        if (showTabs) {
-            TopTabs(modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding())
-        }
-
         BottomMetaBlock(
             modifier = Modifier.align(Alignment.BottomStart).navigationBarsPadding(),
             post = post,
@@ -560,22 +637,37 @@ private fun HomeFeedBackground() {
 }
 
 @Composable
-private fun TopTabs(modifier: Modifier = Modifier) {
+private fun TopTabs(modifier: Modifier = Modifier, feedCounter: String) {
     Row(
-        modifier = modifier.padding(top = 10.dp),
-        horizontalArrangement = Arrangement.spacedBy(20.dp),
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(top = 10.dp, start = 16.dp, end = 16.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(
-            text = "Following",
-            color = Color.White.copy(alpha = 0.72f),
-            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Medium)
-        )
-        Text(
-            text = "For You",
-            color = Color.White,
-            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, fontSize = 18.sp)
-        )
+        Row(horizontalArrangement = Arrangement.spacedBy(20.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = "Following",
+                color = Color.White.copy(alpha = 0.72f),
+                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Medium)
+            )
+            Text(
+                text = "For You",
+                color = Color.White,
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            )
+        }
+        Surface(
+            color = Color.Black.copy(alpha = 0.28f),
+            shape = RoundedCornerShape(999.dp)
+        ) {
+            Text(
+                text = feedCounter,
+                color = Color.White,
+                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
+            )
+        }
     }
 }
 
@@ -881,11 +973,14 @@ private fun TikTokProfileScreen(
     postedVideos: List<VideoPostUiModel>,
     selectedFolders: List<SelectedFolder>,
     playOrder: PlayOrder,
+    videoSourceMode: VideoSourceMode,
     selectedSection: ProfileSection,
     selectedTab: BottomTab,
     onTabSelected: (BottomTab) -> Unit,
     onCreateClick: () -> Unit,
     onAddFolderClick: () -> Unit,
+    onEnableAllVideosClick: () -> Unit,
+    onUseFolderModeClick: () -> Unit,
     onSectionSelected: (ProfileSection) -> Unit,
     onTogglePlayOrder: () -> Unit
 ) {
@@ -904,7 +999,10 @@ private fun TikTokProfileScreen(
                     modifier = Modifier.weight(1f),
                     folders = selectedFolders,
                     playOrder = playOrder,
+                    videoSourceMode = videoSourceMode,
                     onAddFolderClick = onAddFolderClick,
+                    onEnableAllVideosClick = onEnableAllVideosClick,
+                    onUseFolderModeClick = onUseFolderModeClick,
                     onTogglePlayOrder = onTogglePlayOrder
                 )
             }
@@ -925,7 +1023,10 @@ private fun FolderManagerCard(
     modifier: Modifier = Modifier,
     folders: List<SelectedFolder>,
     playOrder: PlayOrder,
+    videoSourceMode: VideoSourceMode,
     onAddFolderClick: () -> Unit,
+    onEnableAllVideosClick: () -> Unit,
+    onUseFolderModeClick: () -> Unit,
     onTogglePlayOrder: () -> Unit
 ) {
     Column(
@@ -988,6 +1089,43 @@ private fun FolderManagerCard(
                             }
                         }
                     }
+                }
+            }
+        }
+
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Surface(
+                modifier = Modifier.weight(1f).clickable(onClick = onUseFolderModeClick),
+                color = if (videoSourceMode == VideoSourceMode.Folders) Color(0xFF111111) else Color.White,
+                shape = RoundedCornerShape(18.dp),
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp,
+                    if (videoSourceMode == VideoSourceMode.Folders) Color.Transparent else TikTokOutline.copy(alpha = 0.6f)
+                )
+            ) {
+                Box(modifier = Modifier.padding(vertical = 15.dp), contentAlignment = Alignment.Center) {
+                    Text(
+                        text = "Folders",
+                        color = if (videoSourceMode == VideoSourceMode.Folders) Color.White else Color.Black,
+                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
+                    )
+                }
+            }
+            Surface(
+                modifier = Modifier.weight(1f).clickable(onClick = onEnableAllVideosClick),
+                color = if (videoSourceMode == VideoSourceMode.All) Color(0xFF111111) else Color.White,
+                shape = RoundedCornerShape(18.dp),
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp,
+                    if (videoSourceMode == VideoSourceMode.All) Color.Transparent else TikTokOutline.copy(alpha = 0.6f)
+                )
+            ) {
+                Box(modifier = Modifier.padding(vertical = 15.dp), contentAlignment = Alignment.Center) {
+                    Text(
+                        text = "All videos",
+                        color = if (videoSourceMode == VideoSourceMode.All) Color.White else Color.Black,
+                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
+                    )
                 }
             }
         }
