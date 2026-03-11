@@ -6,6 +6,7 @@ import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
 import android.media.ThumbnailUtils
 import android.net.Uri
+import android.widget.Toast
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.VideoView
@@ -41,6 +42,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ChatBubble
 import androidx.compose.material.icons.outlined.Edit
@@ -51,6 +58,8 @@ import androidx.compose.material.icons.outlined.MoreHoriz
 import androidx.compose.material.icons.outlined.PersonAddAlt1
 import androidx.compose.material.icons.outlined.PersonOutline
 import androidx.compose.material.icons.outlined.PlayArrow
+import androidx.compose.material.icons.outlined.OpenInBrowser
+import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.TurnedInNot
@@ -131,6 +140,7 @@ fun TikTokHomeScreen(
     var expandedCaptionPostId by rememberSaveable { mutableStateOf<String?>(null) }
     var profileSection by rememberSaveable { mutableStateOf(ProfileSection.Posts) }
     var inboxPreviewUrl by rememberSaveable { mutableStateOf<String?>(null) }
+    var inboxInspectUrl by rememberSaveable { mutableStateOf<String?>(null) }
     val videoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         selectedVideoUri = uri
         if (uri != null) caption = ""
@@ -275,7 +285,8 @@ fun TikTokHomeScreen(
                     selectedTab = if (tapped == BottomTab.Inbox) BottomTab.Home else tapped
                 },
                 onCreateClick = { videoPicker.launch("video/*") },
-                onPreviewLink = { inboxPreviewUrl = it }
+                onPreviewLink = { inboxPreviewUrl = it },
+                onInspectLink = { inboxInspectUrl = it }
             )
         }
 
@@ -315,6 +326,20 @@ fun TikTokHomeScreen(
                     pausedVideoId = null
                     showComments = false
                 }
+            )
+        }
+
+        if (inboxPreviewUrl != null) {
+            LinkPreviewSheet(
+                url = inboxPreviewUrl!!,
+                onDismiss = { inboxPreviewUrl = null }
+            )
+        }
+
+        if (inboxInspectUrl != null) {
+            LinkInspectSheet(
+                url = inboxInspectUrl!!,
+                onDismiss = { inboxInspectUrl = null }
             )
         }
 
@@ -601,54 +626,62 @@ private fun CenteredCaptionOverlay(
     onCaptionChange: (String) -> Unit
 ) {
     val scrollState = rememberScrollState()
+    val panelAlpha by animateFloatAsState(if (post.isEditable) 0.96f else 0.92f, label = "captionPanelAlpha")
     Box(
         modifier = Modifier
             .fillMaxSize()
             .clickable(onClick = onDismiss)
     ) {
-        Surface(
+        AnimatedVisibility(
+            visible = true,
+            enter = fadeIn() + slideInHorizontally(initialOffsetX = { -it / 3 }),
+            exit = fadeOut() + slideOutHorizontally(targetOffsetX = { -it / 4 }),
             modifier = modifier
-                .padding(start = 14.dp, bottom = 132.dp)
-                .fillMaxWidth(0.70f)
-                .requiredHeightIn(min = 220.dp, max = 560.dp)
-                .clickable(enabled = false) {},
-            color = Color.Black.copy(alpha = 0.60f),
-            shape = RoundedCornerShape(24.dp),
-            border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.10f))
+                .align(Alignment.BottomStart)
+                .padding(start = 0.dp, bottom = 120.dp)
         ) {
-            Column(
+            Surface(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(16.dp)
-                    .verticalScroll(scrollState),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                    .fillMaxWidth(0.70f)
+                    .requiredHeightIn(min = 210.dp, max = 560.dp)
+                    .clickable(enabled = false) {},
+                color = Color(0xFF111111).copy(alpha = panelAlpha),
+                shape = RoundedCornerShape(topEnd = 24.dp, bottomEnd = 24.dp)
             ) {
-                if (post.isEditable) {
-                    OutlinedTextField(
-                        value = post.caption,
-                        onValueChange = onCaptionChange,
-                        modifier = Modifier.fillMaxWidth(),
-                        minLines = 8,
-                        maxLines = 20,
-                        placeholder = { Text("Write caption", color = Color.White.copy(alpha = 0.55f)) },
-                        textStyle = MaterialTheme.typography.bodyLarge.copy(
-                            color = Color.White,
-                            fontSize = 16.sp,
-                            lineHeight = 27.sp,
-                            fontWeight = FontWeight.Medium
-                        ),
-                        shape = RoundedCornerShape(18.dp)
-                    )
-                } else {
-                    Text(
-                        text = post.caption,
-                        color = Color.White,
-                        style = MaterialTheme.typography.bodyLarge.copy(
-                            fontSize = 16.sp,
-                            lineHeight = 27.sp,
-                            fontWeight = FontWeight.Medium
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(start = 14.dp, end = 16.dp, top = 14.dp, bottom = 14.dp)
+                        .verticalScroll(scrollState),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    if (post.isEditable) {
+                        OutlinedTextField(
+                            value = post.caption,
+                            onValueChange = onCaptionChange,
+                            modifier = Modifier.fillMaxWidth(),
+                            minLines = 8,
+                            maxLines = 20,
+                            placeholder = { Text("Write caption", color = Color.White.copy(alpha = 0.55f)) },
+                            textStyle = MaterialTheme.typography.bodyLarge.copy(
+                                color = Color.White,
+                                fontSize = 16.sp,
+                                lineHeight = 27.sp,
+                                fontWeight = FontWeight.Medium
+                            ),
+                            shape = RoundedCornerShape(16.dp)
                         )
-                    )
+                    } else {
+                        Text(
+                            text = post.caption,
+                            color = Color.White,
+                            style = MaterialTheme.typography.bodyLarge.copy(
+                                fontSize = 16.sp,
+                                lineHeight = 27.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        )
+                    }
                 }
             }
         }
@@ -997,7 +1030,8 @@ private fun InboxScreen(
     selectedTab: BottomTab,
     onTabSelected: (BottomTab) -> Unit,
     onCreateClick: () -> Unit,
-    onPreviewLink: (String) -> Unit
+    onPreviewLink: (String) -> Unit,
+    onInspectLink: (String) -> Unit
 ) {
     Box(modifier = Modifier.fillMaxSize().background(Color.White)) {
         Column(
@@ -1069,7 +1103,7 @@ private fun InboxScreen(
                                     }
                                     Surface(
                                         modifier = Modifier.weight(1f).clickable {
-                                            onPreviewLink(cleanedUrl)
+                                            onInspectLink(cleanedUrl)
                                         },
                                         color = Color.White,
                                         shape = RoundedCornerShape(14.dp),
@@ -1166,6 +1200,122 @@ private fun LinkPreviewSheet(url: String, onDismiss: () -> Unit) {
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun LinkInspectSheet(url: String, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val uri = remember(url) { Uri.parse(url) }
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.52f))
+            .clickable(onClick = onDismiss),
+        contentAlignment = Alignment.BottomCenter
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(enabled = false) {}
+                .navigationBarsPadding(),
+            color = Color.White,
+            shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Text(
+                    text = "Link details",
+                    color = Color.Black,
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                )
+                InspectDetailRow(label = "Type", value = linkDisplayTitle(url))
+                InspectDetailRow(label = "Host", value = uri.host ?: "Unknown")
+                InspectDetailRow(label = "Path", value = uri.path ?: "/")
+                InspectDetailRow(label = "Clean URL", value = url)
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Surface(
+                        modifier = Modifier.weight(1f).clickable {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Shared URL", url))
+                            Toast.makeText(context, "Link copied", Toast.LENGTH_SHORT).show()
+                        },
+                        color = Color.White,
+                        shape = RoundedCornerShape(14.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, TikTokOutline.copy(alpha = 0.6f))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.ContentCopy,
+                                contentDescription = "Copy link",
+                                tint = Color.Black,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Copy",
+                                color = Color.Black,
+                                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
+                            )
+                        }
+                    }
+                    Surface(
+                        modifier = Modifier.weight(1f).clickable {
+                            runCatching {
+                                context.startActivity(
+                                    Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                )
+                            }
+                        },
+                        color = Color(0xFF111111),
+                        shape = RoundedCornerShape(14.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.OpenInBrowser,
+                                contentDescription = "Open externally",
+                                tint = Color.White,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Open",
+                                color = Color.White,
+                                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun InspectDetailRow(label: String, value: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            text = label,
+            color = TikTokTextSecondary,
+            style = MaterialTheme.typography.labelMedium
+        )
+        Text(
+            text = value,
+            color = Color.Black,
+            style = MaterialTheme.typography.bodyMedium
+        )
     }
 }
 
