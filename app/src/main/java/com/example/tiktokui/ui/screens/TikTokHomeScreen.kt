@@ -7,6 +7,7 @@ import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
 import android.media.ThumbnailUtils
 import android.net.Uri
+import android.provider.DocumentsContract
 import android.widget.Toast
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -2261,10 +2262,24 @@ private fun openVideoLocation(context: Context, video: StoredVideo?) {
         return
     }
 
+    val initialFolderUri = runCatching {
+        if (DocumentsContract.isTreeUri(folderUri)) {
+            DocumentsContract.buildDocumentUriUsingTree(
+                folderUri,
+                DocumentsContract.getTreeDocumentId(folderUri)
+            )
+        } else {
+            folderUri
+        }
+    }.getOrDefault(folderUri)
+
     val opened = runCatching {
         context.startActivity(
             Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
-                putExtra("android.provider.extra.INITIAL_URI", folderUri)
+                putExtra("android.provider.extra.INITIAL_URI", initialFolderUri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
         )
