@@ -1,5 +1,6 @@
 package com.example.tiktokui.ui.screens
 
+import android.content.Intent
 import android.content.Context
 import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
@@ -12,7 +13,6 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -91,7 +91,6 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import com.example.tiktokui.data.AppPersistedState
 import com.example.tiktokui.data.LocalTikTokStore
 import com.example.tiktokui.data.PlayOrder
 import com.example.tiktokui.data.SelectedFolder
@@ -214,13 +213,17 @@ fun TikTokHomeScreen(
                     pausedVideoId = if (pausedVideoId == postId) null else postId
                 },
                 onCommentsClick = { showComments = true },
-                onEditCaptionClick = { post ->
-                    editingPostId = post.id
-                    editingCaptionText = post.caption
-                },
                 expandedCaptionPostId = expandedCaptionPostId,
                 onToggleCaption = { postId ->
                     expandedCaptionPostId = if (expandedCaptionPostId == postId) null else postId
+                },
+                onCaptionChange = { postId, updatedCaption ->
+                    val index = appState.videos.indexOfFirst { it.id == postId }
+                    if (index >= 0) {
+                        val updatedVideos = appState.videos.toMutableList()
+                        updatedVideos[index] = updatedVideos[index].copy(caption = updatedCaption)
+                        appState = appState.copy(videos = updatedVideos)
+                    }
                 },
                 selectedTab = selectedTab,
                 onTabSelected = { tapped ->
@@ -306,26 +309,6 @@ fun TikTokHomeScreen(
             )
         }
 
-        if (editingPostId != null) {
-            CaptionEditSheet(
-                caption = editingCaptionText,
-                onCaptionChange = { editingCaptionText = it },
-                onDismiss = {
-                    editingPostId = null
-                    editingCaptionText = ""
-                },
-                onSave = {
-                    val index = appState.videos.indexOfFirst { it.id == editingPostId }
-                    if (index >= 0) {
-                        val updatedVideos = appState.videos.toMutableList()
-                        updatedVideos[index] = updatedVideos[index].copy(caption = editingCaptionText)
-                        appState = appState.copy(videos = updatedVideos)
-                    }
-                    editingPostId = null
-                    editingCaptionText = ""
-                }
-            )
-        }
     }
 }
 
@@ -336,9 +319,9 @@ private fun HomeFeedPager(
     pausedVideoId: String?,
     onTogglePlayback: (String) -> Unit,
     onCommentsClick: () -> Unit,
-    onEditCaptionClick: (VideoPostUiModel) -> Unit,
     expandedCaptionPostId: String?,
     onToggleCaption: (String) -> Unit,
+    onCaptionChange: (String, String) -> Unit,
     selectedTab: BottomTab,
     onTabSelected: (BottomTab) -> Unit,
     onCreateClick: () -> Unit
@@ -352,9 +335,9 @@ private fun HomeFeedPager(
                 isPaused = pausedVideoId == post.id,
                 onTogglePlayback = { onTogglePlayback(post.id) },
                 onCommentsClick = onCommentsClick,
-                onEditCaptionClick = onEditCaptionClick,
                 isCaptionExpanded = expandedCaptionPostId == post.id,
-                onToggleCaption = { onToggleCaption(post.id) }
+                onToggleCaption = { onToggleCaption(post.id) },
+                onCaptionChange = { updatedCaption -> onCaptionChange(post.id, updatedCaption) }
             )
         }
 
@@ -375,9 +358,9 @@ private fun HomeFeedPage(
     isPaused: Boolean,
     onTogglePlayback: () -> Unit,
     onCommentsClick: () -> Unit,
-    onEditCaptionClick: (VideoPostUiModel) -> Unit,
     isCaptionExpanded: Boolean,
-    onToggleCaption: () -> Unit
+    onToggleCaption: () -> Unit,
+    onCaptionChange: (String) -> Unit
 ) {
     Box(modifier = Modifier.fillMaxSize()) {
         if (post.uri != null) {
@@ -406,9 +389,9 @@ private fun HomeFeedPage(
             post = post,
             showTabs = post.uri == null,
             onCommentsClick = onCommentsClick,
-            onEditCaptionClick = onEditCaptionClick,
             isCaptionExpanded = isCaptionExpanded,
-            onToggleCaption = onToggleCaption
+            onToggleCaption = onToggleCaption,
+            onCaptionChange = onCaptionChange
         )
     }
 }
@@ -441,9 +424,9 @@ private fun FeedOverlay(
     post: VideoPostUiModel,
     showTabs: Boolean,
     onCommentsClick: () -> Unit,
-    onEditCaptionClick: (VideoPostUiModel) -> Unit,
     isCaptionExpanded: Boolean,
-    onToggleCaption: () -> Unit
+    onToggleCaption: () -> Unit,
+    onCaptionChange: (String) -> Unit
 ) {
     Box(modifier = Modifier.fillMaxSize()) {
         if (showTabs) {
@@ -453,17 +436,16 @@ private fun FeedOverlay(
         BottomMetaBlock(
             modifier = Modifier.align(Alignment.BottomStart).navigationBarsPadding(),
             post = post,
-            onEditCaptionClick = { onEditCaptionClick(post) },
             isCaptionExpanded = isCaptionExpanded,
             onToggleCaption = onToggleCaption
         )
 
         if (isCaptionExpanded) {
             CenteredCaptionOverlay(
-                modifier = Modifier.align(Alignment.Center),
+                modifier = Modifier.align(Alignment.BottomStart),
                 post = post,
-                onEditCaptionClick = { onEditCaptionClick(post) },
-                onDismiss = onToggleCaption
+                onDismiss = onToggleCaption,
+                onCaptionChange = onCaptionChange
             )
         }
 
@@ -567,56 +549,10 @@ private fun TopTabs(modifier: Modifier = Modifier) {
 private fun BottomMetaBlock(
     modifier: Modifier = Modifier,
     post: VideoPostUiModel,
-    onEditCaptionClick: () -> Unit,
     isCaptionExpanded: Boolean,
     onToggleCaption: () -> Unit
 ) {
     Column(modifier = modifier.fillMaxWidth(0.78f).padding(start = 16.dp, bottom = 76.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = post.username,
-                color = Color.White,
-                style = MaterialTheme.typography.bodyLarge.copy(
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 17.sp
-                )
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = "New post",
-                color = Color.White.copy(alpha = 0.72f),
-                style = MaterialTheme.typography.labelMedium
-            )
-            Spacer(modifier = Modifier.weight(1f))
-            if (post.isEditable) {
-                Surface(
-                    color = Color.White.copy(alpha = 0.14f),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.clickable(onClick = onEditCaptionClick).padding(horizontal = 10.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.Edit,
-                            contentDescription = "Edit caption",
-                            tint = Color.White,
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Text(
-                            text = "Edit",
-                            color = Color.White,
-                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold)
-                        )
-                    }
-                }
-            }
-        }
-        Spacer(modifier = Modifier.height(10.dp))
         Surface(
             color = if (isCaptionExpanded) Color.White.copy(alpha = 0.16f) else Color.Black.copy(alpha = 0.30f),
             shape = RoundedCornerShape(18.dp),
@@ -632,18 +568,12 @@ private fun BottomMetaBlock(
                         fontWeight = FontWeight.SemiBold
                     )
                 )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Rounded.MusicNote,
-                        contentDescription = null,
-                        tint = Color.White.copy(alpha = 0.88f),
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
+                if (!isCaptionExpanded) {
+                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = post.song,
-                        color = Color.White.copy(alpha = 0.92f),
-                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Medium),
+                        text = post.caption,
+                        color = Color.White.copy(alpha = 0.86f),
+                        style = MaterialTheme.typography.bodySmall,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -657,93 +587,59 @@ private fun BottomMetaBlock(
 private fun CenteredCaptionOverlay(
     modifier: Modifier = Modifier,
     post: VideoPostUiModel,
-    onEditCaptionClick: () -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onCaptionChange: (String) -> Unit
 ) {
     val scrollState = rememberScrollState()
-    Surface(
-        modifier = modifier
-            .fillMaxWidth(0.70f)
-            .requiredHeightIn(min = 220.dp, max = 560.dp),
-        color = Color.Black.copy(alpha = 0.58f),
-        shape = RoundedCornerShape(28.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.12f))
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .clickable(onClick = onDismiss)
     ) {
-        Column(
-            modifier = Modifier.fillMaxSize().padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+        Surface(
+            modifier = modifier
+                .padding(start = 14.dp, bottom = 132.dp)
+                .fillMaxWidth(0.70f)
+                .requiredHeightIn(min = 220.dp, max = 560.dp)
+                .clickable(enabled = false) {},
+            color = Color.Black.copy(alpha = 0.60f),
+            shape = RoundedCornerShape(24.dp),
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.10f))
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = post.username,
-                    color = Color.White,
-                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    if (post.isEditable) {
-                        Surface(color = Color.White.copy(alpha = 0.12f), shape = RoundedCornerShape(12.dp)) {
-                            Row(
-                                modifier = Modifier.clickable(onClick = onEditCaptionClick).padding(horizontal = 10.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Outlined.Edit,
-                                    contentDescription = "Edit caption",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Text(
-                                    text = "Edit",
-                                    color = Color.White,
-                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold)
-                                )
-                            }
-                        }
-                    }
-                    Surface(color = Color.White.copy(alpha = 0.12f), shape = RoundedCornerShape(12.dp)) {
-                        Text(
-                            text = "Done",
-                            color = Color.White,
-                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                            modifier = Modifier.clickable(onClick = onDismiss).padding(horizontal = 10.dp, vertical = 6.dp)
-                        )
-                    }
-                }
-            }
             Column(
-                modifier = Modifier.fillMaxWidth().weight(1f).verticalScroll(scrollState),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp)
+                    .verticalScroll(scrollState),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Text(
-                    text = post.caption,
-                    color = Color.White,
-                    style = MaterialTheme.typography.bodyLarge.copy(
-                        fontSize = 16.sp,
-                        lineHeight = 27.sp,
-                        fontWeight = FontWeight.Medium
+                if (post.isEditable) {
+                    OutlinedTextField(
+                        value = post.caption,
+                        onValueChange = onCaptionChange,
+                        modifier = Modifier.fillMaxWidth(),
+                        minLines = 8,
+                        maxLines = 20,
+                        placeholder = { Text("Write caption", color = Color.White.copy(alpha = 0.55f)) },
+                        textStyle = MaterialTheme.typography.bodyLarge.copy(
+                            color = Color.White,
+                            fontSize = 16.sp,
+                            lineHeight = 27.sp,
+                            fontWeight = FontWeight.Medium
+                        ),
+                        shape = RoundedCornerShape(18.dp)
                     )
-                )
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Rounded.MusicNote,
-                    contentDescription = null,
-                    tint = Color.White.copy(alpha = 0.88f),
-                    modifier = Modifier.size(16.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = post.song,
-                    color = Color.White.copy(alpha = 0.92f),
-                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Medium),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                } else {
+                    Text(
+                        text = post.caption,
+                        color = Color.White,
+                        style = MaterialTheme.typography.bodyLarge.copy(
+                            fontSize = 16.sp,
+                            lineHeight = 27.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    )
+                }
             }
         }
     }
@@ -1048,6 +944,7 @@ private fun InboxScreen(
     onTabSelected: (BottomTab) -> Unit,
     onCreateClick: () -> Unit
 ) {
+    val context = LocalContext.current
     Box(modifier = Modifier.fillMaxSize().background(Color.White)) {
         Column(
             modifier = Modifier
@@ -1083,6 +980,13 @@ private fun InboxScreen(
                 } else {
                     links.forEach { link ->
                         Surface(
+                            modifier = Modifier.clickable {
+                                runCatching {
+                                    context.startActivity(
+                                        Intent(Intent.ACTION_VIEW, Uri.parse(link.url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    )
+                                }
+                            },
                             color = Color(0xFFF7F7F7),
                             shape = RoundedCornerShape(18.dp),
                             border = androidx.compose.foundation.BorderStroke(1.dp, TikTokOutline.copy(alpha = 0.6f))
@@ -1630,7 +1534,7 @@ private fun StoredVideo.toVideoPostUiModel(): VideoPostUiModel {
     return VideoPostUiModel(
         id = id,
         uri = uri,
-        username = "@you",
+        username = "",
         caption = caption,
         song = displayName,
         likes = "0",
