@@ -74,6 +74,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -144,6 +145,24 @@ fun TikTokHomeScreen(
     var profileSection by rememberSaveable { mutableStateOf(ProfileSection.Posts) }
     var inboxPreviewUrl by rememberSaveable { mutableStateOf<String?>(null) }
     var inboxInspectUrl by rememberSaveable { mutableStateOf<String?>(null) }
+    var allModeVideos by remember { mutableStateOf<List<StoredVideo>>(emptyList()) }
+
+    val loadAllVideos: suspend () -> Unit = {
+        val scannedVideos = withContext(Dispatchers.IO) {
+            store.scanAllDeviceVideos().map { source ->
+                StoredVideo(
+                    id = "all_${source.uri}",
+                    localPath = source.uri.toString(),
+                    sourceUri = source.uri.toString(),
+                    sourceFolderUri = "__all_videos__",
+                    displayName = source.displayName,
+                    caption = source.displayName.substringBeforeLast('.')
+                )
+            }
+        }
+        allModeVideos = scannedVideos
+        appState = appState.copy(videoSourceMode = VideoSourceMode.All)
+    }
     val mediaPermission = remember {
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
             android.Manifest.permission.READ_MEDIA_VIDEO
@@ -158,25 +177,7 @@ fun TikTokHomeScreen(
     val allVideosPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) {
             scope.launch {
-                val importedVideos = withContext(Dispatchers.IO) {
-                    store.scanAllDeviceVideos().mapNotNull { source ->
-                        val alreadyImported = appState.videos.any { it.sourceUri == source.uri.toString() }
-                        if (alreadyImported) null else {
-                            StoredVideo(
-                                id = UUID.randomUUID().toString(),
-                                localPath = store.copyIntoLibrary(source.uri, source.displayName),
-                                sourceUri = source.uri.toString(),
-                                sourceFolderUri = "__all_videos__",
-                                displayName = source.displayName,
-                                caption = source.displayName.substringBeforeLast('.')
-                            )
-                        }
-                    }
-                }
-                appState = appState.copy(
-                    videoSourceMode = VideoSourceMode.All,
-                    videos = (importedVideos + appState.videos).distinctBy { it.localPath }
-                )
+                loadAllVideos()
             }
         } else {
             Toast.makeText(context, "Video access permission is required for All videos", Toast.LENGTH_SHORT).show()
@@ -232,9 +233,9 @@ fun TikTokHomeScreen(
         }
     }
 
-    val visibleVideos = remember(appState.videos, appState.videoSourceMode) {
+    val visibleVideos = remember(appState.videos, appState.videoSourceMode, allModeVideos) {
         when (appState.videoSourceMode) {
-            VideoSourceMode.All -> appState.videos
+            VideoSourceMode.All -> allModeVideos
             VideoSourceMode.Folders -> appState.videos.filter { it.sourceFolderUri != "__all_videos__" || appState.folders.isEmpty() }
         }
     }
@@ -314,25 +315,7 @@ fun TikTokHomeScreen(
                 onEnableAllVideosClick = {
                     if (ContextCompat.checkSelfPermission(context, mediaPermission) == PackageManager.PERMISSION_GRANTED) {
                         scope.launch {
-                            val importedVideos = withContext(Dispatchers.IO) {
-                                store.scanAllDeviceVideos().mapNotNull { source ->
-                                    val alreadyImported = appState.videos.any { it.sourceUri == source.uri.toString() }
-                                    if (alreadyImported) null else {
-                                        StoredVideo(
-                                            id = UUID.randomUUID().toString(),
-                                            localPath = store.copyIntoLibrary(source.uri, source.displayName),
-                                            sourceUri = source.uri.toString(),
-                                            sourceFolderUri = "__all_videos__",
-                                            displayName = source.displayName,
-                                            caption = source.displayName.substringBeforeLast('.')
-                                        )
-                                    }
-                                }
-                            }
-                            appState = appState.copy(
-                                videoSourceMode = VideoSourceMode.All,
-                                videos = (importedVideos + appState.videos).distinctBy { it.localPath }
-                            )
+                            loadAllVideos()
                         }
                     } else {
                         allVideosPermissionLauncher.launch(mediaPermission)
@@ -1820,7 +1803,11 @@ private fun UploadCaptionSheet(
                     minLines = 4,
                     maxLines = 6,
                     label = { Text("Caption") },
-                    placeholder = { Text("Write a caption for your video") }
+                    placeholder = { Text("Write a caption for your video") },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = TikTokOutline,
+                        unfocusedBorderColor = TikTokOutline.copy(alpha = 0.7f)
+                    )
                 )
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -1911,7 +1898,11 @@ private fun CaptionEditSheet(
                     maxLines = 12,
                     label = { Text("Caption") },
                     placeholder = { Text("Write a detailed caption") },
-                    shape = RoundedCornerShape(18.dp)
+                    shape = RoundedCornerShape(18.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = TikTokOutline,
+                        unfocusedBorderColor = TikTokOutline.copy(alpha = 0.7f)
+                    )
                 )
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -2029,7 +2020,10 @@ private data class VideoPostUiModel(
 )
 
 private fun StoredVideo.toVideoPostUiModel(): VideoPostUiModel {
-    val uri = Uri.fromFile(java.io.File(localPath))
+    val uri = when {
+        localPath.startsWith("content://") || localPath.startsWith("file://") -> Uri.parse(localPath)
+        else -> Uri.fromFile(java.io.File(localPath))
+    }
     return VideoPostUiModel(
         id = id,
         uri = uri,
