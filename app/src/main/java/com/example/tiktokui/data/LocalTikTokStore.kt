@@ -17,8 +17,16 @@ data class AppPersistedState(
     val videos: List<StoredVideo> = emptyList(),
     val folders: List<SelectedFolder> = emptyList(),
     val inboxLinks: List<SharedLinkItem> = emptyList(),
+    val todos: List<TodoItem> = emptyList(),
     val playOrder: PlayOrder = PlayOrder.Sequential,
     val videoSourceMode: VideoSourceMode = VideoSourceMode.Folders
+)
+
+data class TodoItem(
+    val id: String,
+    val text: String,
+    val isDone: Boolean = false,
+    val createdAt: Long = System.currentTimeMillis()
 )
 
 data class StoredVideo(
@@ -71,6 +79,7 @@ class LocalTikTokStore(private val context: Context) {
                 videos = json.optJSONArray("videos").toStoredVideos(),
                 folders = json.optJSONArray("folders").toFolders(),
                 inboxLinks = json.optJSONArray("inbox").toInboxLinks(),
+                todos = json.optJSONArray("todos").toTodoItems(),
                 playOrder = PlayOrder.valueOf(json.optString("play_order", PlayOrder.Sequential.name)),
                 videoSourceMode = VideoSourceMode.valueOf(json.optString("video_source_mode", VideoSourceMode.Folders.name))
             )
@@ -108,6 +117,16 @@ class LocalTikTokStore(private val context: Context) {
                         put("id", link.id)
                         put("url", link.url)
                         put("received_at", link.receivedAt)
+                    })
+                }
+            })
+            put("todos", JSONArray().apply {
+                state.todos.forEach { todo ->
+                    put(JSONObject().apply {
+                        put("id", todo.id)
+                        put("text", todo.text)
+                        put("is_done", todo.isDone)
+                        put("created_at", todo.createdAt)
                     })
                 }
             })
@@ -489,6 +508,23 @@ private fun JSONArray?.toInboxLinks(): List<SharedLinkItem> {
                     id = item.optString("id"),
                     url = item.optString("url"),
                     receivedAt = item.optLong("received_at")
+                )
+            )
+        }
+    }
+}
+
+private fun JSONArray?.toTodoItems(): List<TodoItem> {
+    if (this == null) return emptyList()
+    return buildList {
+        for (index in 0 until length()) {
+            val item = optJSONObject(index) ?: continue
+            add(
+                TodoItem(
+                    id = item.optString("id"),
+                    text = item.optString("text"),
+                    isDone = item.optBoolean("is_done", false),
+                    createdAt = item.optLong("created_at")
                 )
             )
         }

@@ -23,3 +23,27 @@ val TikTokDarkSurface = Color(0xFF151515)
 val TikTokDarkSurfaceVariant = Color(0xFF222222)
 val TikTokDarkTextPrimary = Color(0xFFF7F7F7)
 val TikTokDarkTextSecondary = Color(0xFFB4B4B4)
+
+// Modern accent palette
+val TikTokSuccess = Color(0xFF34D399)
+val TikTokSuccessSoft = Color(0xFFD1FAE5)
+val TikTokWarning = Color(0xFFFBBF24)
+val TikTokInfo = Color(0xFF60A5FA)
+val TikTokInfoSoft = Color(0xFFDBEAFE)
+
+// Glassmorphic surface tones
+val TikTokGlass = Color(0x33FFFFFF)
+val TikTokGlassBorder = Color(0x22FFFFFF)
+val TikTokGlassDark = Color(0x55000000)
+
+// Todo specific
+val TikTokTodoDone = Color(0xFF34D399)
+val TikTokTodoUndone = Color(0xFFCBD5E1)
+val TikTokTodoAccent = Color(0xFF6366F1)
+val TikTokTodoAccentSoft = Color(0xFFEEF2FF)
+
+// Deep dark surfaces for depth
+val TikTokDarkDepth1 = Color(0xFF0A0A0A)
+val TikTokDarkDepth2 = Color(0xFF121212)
+val TikTokDarkDepth3 = Color(0xFF1A1A1A)
+val TikTokDarkDepth4 = Color(0xFF242424)

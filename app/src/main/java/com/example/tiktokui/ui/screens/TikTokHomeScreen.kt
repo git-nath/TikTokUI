@@ -37,6 +37,7 @@ import androidx.compose.foundation.layout.requiredHeightIn
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -55,17 +56,23 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.ChatBubble
+import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.GridOn
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.MoreHoriz
+import androidx.compose.material.icons.outlined.OpenInBrowser
 import androidx.compose.material.icons.outlined.PersonAddAlt1
 import androidx.compose.material.icons.outlined.PersonOutline
 import androidx.compose.material.icons.outlined.PlayArrow
-import androidx.compose.material.icons.outlined.OpenInBrowser
-import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.TurnedInNot
@@ -117,6 +124,7 @@ import com.example.tiktokui.data.PlayOrder
 import com.example.tiktokui.data.SelectedFolder
 import com.example.tiktokui.data.SharedLinkItem
 import com.example.tiktokui.data.StoredVideo
+import com.example.tiktokui.data.TodoItem
 import com.example.tiktokui.data.VideoSourceMode
 import com.example.tiktokui.ui.theme.TikTokAccent
 import com.example.tiktokui.ui.theme.TikTokAccentSoft
@@ -127,7 +135,12 @@ import com.example.tiktokui.ui.theme.TikTokJournalGold
 import com.example.tiktokui.ui.theme.TikTokJournalNavy
 import com.example.tiktokui.ui.theme.TikTokOutline
 import com.example.tiktokui.ui.theme.TikTokSurfaceVariant
+import com.example.tiktokui.ui.theme.TikTokSuccess
 import com.example.tiktokui.ui.theme.TikTokTextSecondary
+import com.example.tiktokui.ui.theme.TikTokTodoAccent
+import com.example.tiktokui.ui.theme.TikTokTodoAccentSoft
+import com.example.tiktokui.ui.theme.TikTokTodoDone
+import com.example.tiktokui.ui.theme.TikTokTodoUndone
 import com.example.tiktokui.ui.theme.TikTokUITheme
 import java.util.UUID
 import java.io.File
@@ -428,6 +441,15 @@ fun TikTokHomeScreen(
                         ?: visibleVideos.firstOrNull { it.id == postId }
                     openVideoLocation(context, sourceVideo)
                 },
+                onCopyPath = { postId ->
+                    val sourceVideo = resolveStoredVideo(postId)
+                    if (sourceVideo != null) {
+                        val pathText = sourceVideo.sourceUri ?: sourceVideo.localPath
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Video path", pathText))
+                        Toast.makeText(context, "Path copied", Toast.LENGTH_SHORT).show()
+                    }
+                },
                 onFavoriteClick = { postId ->
                     if (postId == currentFeedPostId && pausedVideoId == null) {
                         pendingFavoritePostId = postId
@@ -454,8 +476,7 @@ fun TikTokHomeScreen(
                 feedCounter = "${pagerState.currentPage + 1}/${homeFeedPosts.size}",
                 onTabSelected = { tapped ->
                     selectedTab = when {
-                        tapped == BottomTab.Profile && selectedTab == BottomTab.Profile -> BottomTab.Home
-                        tapped == BottomTab.Inbox && selectedTab == BottomTab.Inbox -> BottomTab.Home
+                        tapped == selectedTab -> BottomTab.Home
                         else -> tapped
                     }
                 },
@@ -478,7 +499,7 @@ fun TikTokHomeScreen(
                     profileLaunchPostId = postId
                 },
                 onTabSelected = { tapped ->
-                    selectedTab = if (tapped == BottomTab.Profile) BottomTab.Home else tapped
+                    selectedTab = if (tapped == selectedTab) BottomTab.Home else tapped
                 },
                 onCreateClick = { videoPicker.launch(arrayOf("video/*")) },
                 onAddFolderClick = { folderPicker.launch(null) },
@@ -506,11 +527,43 @@ fun TikTokHomeScreen(
                 }
             )
 
+            BottomTab.Todo -> TodoScreen(
+                todos = appState.todos,
+                selectedTab = selectedTab,
+                onTabSelected = { tapped ->
+                    selectedTab = if (tapped == selectedTab) BottomTab.Home else tapped
+                },
+                onCreateClick = { videoPicker.launch(arrayOf("video/*")) },
+                onAddTodo = { text ->
+                    appState = appState.copy(
+                        todos = listOf(
+                            TodoItem(
+                                id = UUID.randomUUID().toString(),
+                                text = text.trim(),
+                                createdAt = System.currentTimeMillis()
+                            )
+                        ) + appState.todos
+                    )
+                },
+                onToggleTodo = { todoId ->
+                    appState = appState.copy(
+                        todos = appState.todos.map { todo ->
+                            if (todo.id == todoId) todo.copy(isDone = !todo.isDone) else todo
+                        }
+                    )
+                },
+                onDeleteTodo = { todoId ->
+                    appState = appState.copy(
+                        todos = appState.todos.filter { it.id != todoId }
+                    )
+                }
+            )
+
             BottomTab.Inbox -> InboxScreen(
                 links = appState.inboxLinks,
                 selectedTab = selectedTab,
                 onTabSelected = { tapped ->
-                    selectedTab = if (tapped == BottomTab.Inbox) BottomTab.Home else tapped
+                    selectedTab = if (tapped == selectedTab) BottomTab.Home else tapped
                 },
                 onCreateClick = { videoPicker.launch(arrayOf("video/*")) },
                 onPreviewLink = { inboxPreviewUrl = it },
@@ -590,6 +643,7 @@ private fun HomeFeedPager(
     onTogglePlayback: (String) -> Unit,
     onCommentsClick: () -> Unit,
     onShareClick: (String) -> Unit,
+    onCopyPath: (String) -> Unit,
     onFavoriteClick: (String) -> Unit,
     expandedCaptionPostId: String?,
     onToggleCaption: (String) -> Unit,
@@ -610,6 +664,7 @@ private fun HomeFeedPager(
                 onTogglePlayback = { onTogglePlayback(post.id) },
                 onCommentsClick = onCommentsClick,
                 onShareClick = { onShareClick(post.id) },
+                onCopyPath = { onCopyPath(post.id) },
                 onFavoriteClick = { onFavoriteClick(post.id) },
                 isCaptionExpanded = expandedCaptionPostId == post.id,
                 onToggleCaption = { onToggleCaption(post.id) },
@@ -641,6 +696,7 @@ private fun HomeFeedPage(
     onTogglePlayback: () -> Unit,
     onCommentsClick: () -> Unit,
     onShareClick: () -> Unit,
+    onCopyPath: () -> Unit,
     onFavoriteClick: () -> Unit,
     isCaptionExpanded: Boolean,
     onToggleCaption: () -> Unit,
@@ -670,11 +726,46 @@ private fun HomeFeedPage(
             HomeFeedBackground()
         }
 
+        // Folder name chip at top
+        if (post.isEditable && post.song.isNotBlank()) {
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .statusBarsPadding()
+                    .padding(start = 16.dp, top = 56.dp),
+                color = Color.Black.copy(alpha = 0.48f),
+                shape = RoundedCornerShape(12.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.10f))
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.FolderOpen,
+                        contentDescription = "Source folder",
+                        tint = TikTokJournalGold,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Text(
+                        text = post.song,
+                        color = Color.White.copy(alpha = 0.92f),
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.widthIn(max = 180.dp)
+                    )
+                }
+            }
+        }
+
         FeedOverlay(
             post = post,
             showTabs = post.uri == null,
             onCommentsClick = onCommentsClick,
             onShareClick = onShareClick,
+            onCopyPath = onCopyPath,
             onFavoriteClick = onFavoriteClick,
             isCaptionExpanded = isCaptionExpanded,
             onToggleCaption = onToggleCaption,
@@ -691,6 +782,7 @@ private fun VideoBackground(uri: Uri, shouldPlay: Boolean, onTogglePlayback: () 
         factory = { ctx ->
             VideoView(ctx).apply {
                 setVideoURI(uri)
+                setOnErrorListener { _, _, _ -> true }
                 setOnPreparedListener { mediaPlayer ->
                     mediaPlayer.isLooping = true
                     if (shouldPlay) start()
@@ -699,7 +791,9 @@ private fun VideoBackground(uri: Uri, shouldPlay: Boolean, onTogglePlayback: () 
         },
         update = { view ->
             if (shouldPlay) {
-                if (!view.isPlaying) view.start()
+                if (!view.isPlaying) {
+                    runCatching { view.start() }
+                }
             } else {
                 if (view.isPlaying) view.pause()
             }
@@ -713,6 +807,7 @@ private fun FeedOverlay(
     showTabs: Boolean,
     onCommentsClick: () -> Unit,
     onShareClick: () -> Unit,
+    onCopyPath: () -> Unit,
     onFavoriteClick: () -> Unit,
     isCaptionExpanded: Boolean,
     onToggleCaption: () -> Unit,
@@ -748,6 +843,7 @@ private fun FeedOverlay(
             post = post,
             onCommentsClick = onCommentsClick,
             onShareClick = onShareClick,
+            onCopyPath = onCopyPath,
             onFavoriteClick = onFavoriteClick
         )
     }
@@ -1025,6 +1121,7 @@ private fun RightActionRail(
     post: VideoPostUiModel,
     onCommentsClick: () -> Unit,
     onShareClick: () -> Unit,
+    onCopyPath: () -> Unit,
     onFavoriteClick: () -> Unit
 ) {
     Column(
@@ -1082,6 +1179,21 @@ private fun RightActionRail(
             count = post.shares,
             onClick = onShareClick
         )
+
+        if (post.isEditable) {
+            SocialAction(
+                icon = {
+                    Icon(
+                        imageVector = Icons.Outlined.ContentCopy,
+                        contentDescription = "Copy path",
+                        tint = Color.White,
+                        modifier = Modifier.size(28.dp)
+                    )
+                },
+                count = "Copy",
+                onClick = onCopyPath
+            )
+        }
 
         FavoriteDisc(
             enabled = post.isEditable,
@@ -1246,11 +1358,13 @@ private fun BottomNavBar(
                 onClick = { onTabSelected(BottomTab.Home) }
             )
             NavItem(
-                icon = Icons.Outlined.Search,
-                label = "Discover",
+                icon = Icons.Outlined.Edit,
+                label = "Todo",
+                selected = selectedTab == BottomTab.Todo,
                 activeColor = foreground,
                 inactiveColor = secondary,
-                darkTheme = darkTheme
+                darkTheme = darkTheme,
+                onClick = { onTabSelected(BottomTab.Todo) }
             )
             CreateButton(onClick = onCreateClick)
             NavItem(
@@ -1332,7 +1446,13 @@ private fun TikTokProfileScreen(
     onTogglePlayOrder: () -> Unit
 ) {
     Box(modifier = Modifier.fillMaxSize().background(Color.White)) {
-        Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .verticalScroll(rememberScrollState())
+                .padding(bottom = 72.dp)
+        ) {
             ProfileTopBar()
             HorizontalDivider(color = TikTokOutline)
             ProfileHeader(totalPosts = postedVideos.size + favoriteVideos.size)
@@ -1341,20 +1461,18 @@ private fun TikTokProfileScreen(
                 onSectionSelected = onSectionSelected
             )
             when (selectedSection) {
-                ProfileSection.Posts -> ProfileGrid(
-                    modifier = Modifier.weight(1f),
+                ProfileSection.Posts -> ProfileGridInline(
                     postedVideos = postedVideos,
                     onOpenVideo = onOpenVideo
                 )
-                ProfileSection.Favorites -> ProfileGrid(
-                    modifier = Modifier.weight(1f),
+                ProfileSection.Favorites -> ProfileGridInline(
                     postedVideos = favoriteVideos,
                     emptyTitle = "No favorite videos yet",
                     emptySubtitle = "Tap the favorite icon on any video to move it into your favorites folder.",
                     onOpenVideo = onOpenVideo
                 )
                 ProfileSection.Folders -> FolderManagerCard(
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier,
                     folders = selectedFolders,
                     playOrder = playOrder,
                     videoSourceMode = videoSourceMode,
@@ -2132,6 +2250,48 @@ private fun ProfileGrid(
 }
 
 @Composable
+private fun ProfileGridInline(
+    postedVideos: List<VideoPostUiModel>,
+    emptyTitle: String = "No posts yet",
+    emptySubtitle: String = "Add a video to build your clean profile grid.",
+    onOpenVideo: (String) -> Unit
+) {
+    if (postedVideos.isEmpty()) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp)
+        ) {
+            EmptyProfileGridCard(title = emptyTitle, subtitle = emptySubtitle)
+        }
+        return
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 16.dp, end = 16.dp, top = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        postedVideos.chunked(3).forEach { rowItems ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                rowItems.forEach { post ->
+                    Box(modifier = Modifier.weight(1f)) {
+                        ProfileVideoTile(post = post, onOpenVideo = onOpenVideo)
+                    }
+                }
+                repeat(3 - rowItems.size) {
+                    Spacer(modifier = Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun ProfileVideoTile(post: VideoPostUiModel, onOpenVideo: (String) -> Unit) {
     val thumbnail = rememberVideoThumbnail(post.localPath)
     Box(
@@ -2545,7 +2705,353 @@ private fun sampleFeedPosts(): List<VideoPostUiModel> = listOf(
     )
 )
 
-private enum class BottomTab { Home, Inbox, Profile }
+@Composable
+private fun TodoScreen(
+    todos: List<TodoItem>,
+    selectedTab: BottomTab,
+    onTabSelected: (BottomTab) -> Unit,
+    onCreateClick: () -> Unit,
+    onAddTodo: (String) -> Unit,
+    onToggleTodo: (String) -> Unit,
+    onDeleteTodo: (String) -> Unit
+) {
+    var showAddDialog by rememberSaveable { mutableStateOf(false) }
+    var newTodoText by rememberSaveable { mutableStateOf("") }
+
+    Box(modifier = Modifier.fillMaxSize().background(TikTokBackground)) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .padding(bottom = 68.dp)
+        ) {
+            // Header
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = Color.White,
+                shadowElevation = 2.dp
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 18.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(
+                            text = "Todo list",
+                            color = Color.Black,
+                            style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold)
+                        )
+                        Text(
+                            text = "${todos.count { it.isDone }}/${todos.size} completed",
+                            color = TikTokTextSecondary,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    Surface(
+                        modifier = Modifier.clickable { showAddDialog = true },
+                        color = TikTokTodoAccent,
+                        shape = RoundedCornerShape(14.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Add,
+                                contentDescription = "Add todo",
+                                tint = Color.White,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Text(
+                                text = "Add",
+                                color = Color.White,
+                                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Progress bar
+            if (todos.isNotEmpty()) {
+                val doneRatio = todos.count { it.isDone }.toFloat() / todos.size
+                val animatedProgress by animateFloatAsState(doneRatio, label = "todoProgress")
+                LinearProgressIndicator(
+                    progress = { animatedProgress },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 12.dp)
+                        .height(6.dp)
+                        .clip(RoundedCornerShape(3.dp)),
+                    color = TikTokSuccess,
+                    trackColor = TikTokOutline
+                )
+            }
+
+            // Todo list
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (todos.isEmpty()) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth().padding(top = 24.dp),
+                        color = Color.White,
+                        shape = RoundedCornerShape(24.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, TikTokOutline.copy(alpha = 0.6f))
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Edit,
+                                contentDescription = null,
+                                tint = TikTokTodoAccent,
+                                modifier = Modifier.size(48.dp)
+                            )
+                            Text(
+                                text = "No tasks yet",
+                                color = Color.Black,
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                            Text(
+                                text = "Tap + Add to create your first task.\nTrack what to update in your video journal.",
+                                color = TikTokTextSecondary,
+                                style = MaterialTheme.typography.bodyMedium,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                } else {
+                    // Undone items first, then done
+                    val undone = todos.filter { !it.isDone }
+                    val done = todos.filter { it.isDone }
+
+                    undone.forEach { todo ->
+                        TodoItemCard(
+                            todo = todo,
+                            onToggle = { onToggleTodo(todo.id) },
+                            onDelete = { onDeleteTodo(todo.id) }
+                        )
+                    }
+
+                    if (done.isNotEmpty() && undone.isNotEmpty()) {
+                        HorizontalDivider(
+                            modifier = Modifier.padding(vertical = 8.dp),
+                            color = TikTokOutline
+                        )
+                        Text(
+                            text = "Completed",
+                            color = TikTokTextSecondary,
+                            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                            modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
+                        )
+                    }
+
+                    done.forEach { todo ->
+                        TodoItemCard(
+                            todo = todo,
+                            onToggle = { onToggleTodo(todo.id) },
+                            onDelete = { onDeleteTodo(todo.id) }
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+        }
+
+        BottomNavBar(
+            modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding(),
+            selectedTab = selectedTab,
+            onTabSelected = onTabSelected,
+            onCreateClick = onCreateClick,
+            darkTheme = false
+        )
+
+        // Add dialog
+        if (showAddDialog) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.50f))
+                    .clickable {
+                        showAddDialog = false
+                        newTodoText = ""
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth(0.88f)
+                        .clickable(enabled = false) {},
+                    color = Color.White,
+                    shape = RoundedCornerShape(24.dp),
+                    shadowElevation = 16.dp
+                ) {
+                    Column(
+                        modifier = Modifier.padding(20.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Text(
+                            text = "New task",
+                            color = Color.Black,
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                        )
+                        OutlinedTextField(
+                            value = newTodoText,
+                            onValueChange = { newTodoText = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            minLines = 2,
+                            maxLines = 5,
+                            placeholder = { Text("What needs to be updated?") },
+                            shape = RoundedCornerShape(16.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = TikTokTodoAccent,
+                                unfocusedBorderColor = TikTokOutline.copy(alpha = 0.7f),
+                                focusedContainerColor = Color.White,
+                                unfocusedContainerColor = Color.White
+                            )
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Surface(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable {
+                                        showAddDialog = false
+                                        newTodoText = ""
+                                    },
+                                color = TikTokSurfaceVariant,
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier.padding(vertical = 14.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "Cancel",
+                                        color = Color.Black,
+                                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
+                                    )
+                                }
+                            }
+                            Surface(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable {
+                                        if (newTodoText.isNotBlank()) {
+                                            onAddTodo(newTodoText)
+                                            newTodoText = ""
+                                            showAddDialog = false
+                                        }
+                                    },
+                                color = TikTokTodoAccent,
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier.padding(vertical = 14.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "Add task",
+                                        color = Color.White,
+                                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TodoItemCard(
+    todo: TodoItem,
+    onToggle: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val context = LocalContext.current
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = Color.White,
+        shape = RoundedCornerShape(16.dp),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            if (todo.isDone) TikTokSuccess.copy(alpha = 0.3f) else TikTokOutline.copy(alpha = 0.6f)
+        ),
+        shadowElevation = if (todo.isDone) 0.dp else 1.dp
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onToggle)
+                .padding(horizontal = 14.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Icon(
+                imageVector = if (todo.isDone) Icons.Filled.CheckCircle else Icons.Outlined.CheckCircle,
+                contentDescription = if (todo.isDone) "Mark undone" else "Mark done",
+                tint = if (todo.isDone) TikTokSuccess else TikTokTodoUndone,
+                modifier = Modifier.size(24.dp)
+            )
+            Text(
+                text = todo.text,
+                color = if (todo.isDone) TikTokTextSecondary else Color.Black,
+                style = MaterialTheme.typography.bodyLarge.copy(
+                    fontWeight = FontWeight.Medium,
+                    textDecoration = if (todo.isDone) androidx.compose.ui.text.style.TextDecoration.LineThrough else null
+                ),
+                modifier = Modifier.weight(1f)
+            )
+            // Copy text button
+            IconButton(
+                onClick = {
+                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Todo", todo.text))
+                    Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
+                },
+                modifier = Modifier.size(32.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.ContentCopy,
+                    contentDescription = "Copy text",
+                    tint = TikTokTextSecondary,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+            // Delete button
+            IconButton(
+                onClick = onDelete,
+                modifier = Modifier.size(32.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Delete,
+                    contentDescription = "Delete todo",
+                    tint = TikTokAccent.copy(alpha = 0.7f),
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
+    }
+}
+
+private enum class BottomTab { Home, Todo, Inbox, Profile }
 private enum class ProfileSection { Posts, Favorites, Folders }
 
 private data class VideoPostUiModel(
